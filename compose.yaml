@@ -1,0 +1,48 @@
+name: sql-formatter-rs
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/dev/Dockerfile
+      args:
+        USER_UID: ${LOCAL_UID:-1000}
+        USER_GID: ${LOCAL_GID:-1000}
+    volumes:
+      - .:/workspace
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/workspace-target
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/sql_formatter
+      PGHOST: db
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: sql_formatter
+    depends_on:
+      db:
+        condition: service_healthy
+    init: true
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sql_formatter
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sql_formatter"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:
+  pg-data:
