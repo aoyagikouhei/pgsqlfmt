@@ -11,6 +11,10 @@ RUN apt-get update \
 
 RUN rustup component add rustfmt clippy
 
+# スナップショットテスト（insta）の差分確認・承認用
+RUN cargo install --locked cargo-insta \
+    && rm -rf ${CARGO_HOME}/registry ${CARGO_HOME}/git
+
 # ホストのユーザーと UID/GID を合わせ、生成物が root 所有にならないようにする
 RUN groupadd --gid ${USER_GID} ${USER_NAME} \
     && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash ${USER_NAME}

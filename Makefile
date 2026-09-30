@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 RUN := $(COMPOSE) run --rm dev
 
-.PHONY: up down build shell test fmt clippy check psql db-reset logs
+.PHONY: up down build shell test fmt clippy check psql db-reset logs snapshot-review
 
 up: ## コンテナを起動
 	$(COMPOSE) up -d --build
@@ -37,3 +37,6 @@ db-reset: ## DB ボリュームを削除して作り直す
 
 logs:
 	$(COMPOSE) logs -f
+
+snapshot-review: ## スナップショットの差分を確認して承認
+	$(RUN) cargo insta test --review

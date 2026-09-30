@@ -1,0 +1,7 @@
+---
+source: tests/lexer_snapshots.rs
+expression: dump
+input_file: tests/fixtures/lexer/unterminated.sql
+---
+    0 Ident "SELECT"
+    7 String { prefix: None, terminated: false } "'never closed\nFROM t;\n"

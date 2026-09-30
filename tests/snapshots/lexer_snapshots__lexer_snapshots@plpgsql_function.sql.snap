@@ -1,0 +1,31 @@
+---
+source: tests/lexer_snapshots.rs
+expression: dump
+input_file: tests/fixtures/lexer/plpgsql_function.sql
+---
+    0 Ident "CREATE"
+    7 Ident "OR"
+   10 Ident "REPLACE"
+   18 Ident "FUNCTION"
+   27 Ident "public"
+   33 Dot "."
+   34 Ident "add_points"
+   44 LParen "("
+   45 Ident "p_user_id"
+   55 Ident "bigint"
+   61 Comma ","
+   63 Ident "p_points"
+   72 Ident "int"
+   76 Ident "DEFAULT"
+   84 Number "1"
+   85 RParen ")"
+   87 Ident "RETURNS"
+   95 Ident "int"
+   99 Ident "LANGUAGE"
+  108 Ident "plpgsql"
+  116 Ident "AS"
+  119 DollarString { terminated: true } "$fn$\nDECLARE\n  v_total int := 0; -- 合計\nBEGIN\n  FOR i IN 1..p_points LOOP\n    v_total := v_total + i;\n  END LOOP;\n  UPDATE users SET points = points + v_total WHERE id = p_user_id;\n  RAISE NOTICE 'added % points (it''s done)', v_total;\n  RETURN v_total;\nEXCEPTION WHEN others THEN\n  RAISE EXCEPTION E'failed: \\'%\\'', SQLERRM;\nEND;\n$fn$"
+  457 Semicolon ";"
+  460 Ident "DO"
+  463 DollarString { terminated: true } "$$ BEGIN PERFORM public.add_points(1, 10); END $$"
+  512 Semicolon ";"

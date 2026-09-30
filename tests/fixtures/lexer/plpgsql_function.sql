@@ -1,0 +1,19 @@
+CREATE OR REPLACE FUNCTION public.add_points(p_user_id bigint, p_points int DEFAULT 1)
+RETURNS int
+LANGUAGE plpgsql
+AS $fn$
+DECLARE
+  v_total int := 0; -- 合計
+BEGIN
+  FOR i IN 1..p_points LOOP
+    v_total := v_total + i;
+  END LOOP;
+  UPDATE users SET points = points + v_total WHERE id = p_user_id;
+  RAISE NOTICE 'added % points (it''s done)', v_total;
+  RETURN v_total;
+EXCEPTION WHEN others THEN
+  RAISE EXCEPTION E'failed: \'%\'', SQLERRM;
+END;
+$fn$;
+
+DO $$ BEGIN PERFORM public.add_points(1, 10); END $$;
