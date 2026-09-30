@@ -59,5 +59,11 @@ make down      # 停止
   ケースを増やすときは `.sql` を追加し、`make snapshot-review` で内容を確認してから承認します。
 - `tests/formatter_properties.rs` は、すべてのフィクスチャとその変形について、整形でトークンやコメントが
   欠けないことと、2 回整形しても結果が変わらないことを確かめます。
+- `tests/postgres_equivalence.rs` は、すべてのフィクスチャを整形の前と後で PostgreSQL（`db` コンテナ）に流し、
+  結果が同じになることを確かめます（行幅 80 と 20）。SELECT / DML は `EXPLAIN (VERBOSE, COSTS OFF, GENERIC_PLAN)` の
+  実行計画と実行結果を、CREATE FUNCTION は本体以外のカタログ上の定義を、DO / 関数の呼び出しは NOTICE を含む出力を比べます。
+  スキーマは `tests/postgres/schema.sql`、エラーなく実行できるべき検証用の SQL は `tests/fixtures/postgres/` にあります。
+  全体を 1 つのトランザクションで流して最後に ROLLBACK するので、DB には何も残りません。
+  環境変数 `PGHOST` がない環境（dev コンテナの外）では何もしません。
 - `tests/parser_robustness.rs` は、すべてのフィクスチャを途中で切ったものとトークンを 1 つ抜いたものを構文解析し、
   止まらずに元のテキストを保つことを確かめます。

@@ -1,0 +1,167 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/postgres/plpgsql.sql
+---
+-- 実機検証用。関数を作って呼び出し、整形の前後で結果と NOTICE が同じになること。
+CREATE FUNCTION classify(p_amount numeric, p_label text DEFAULT 'x')
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+    v_result text := '';
+    v_i int;
+    v_ids int[] := ARRAY[3, 1, 2];
+    v_id int;
+BEGIN
+    IF p_amount IS NULL THEN
+        RETURN 'null';
+    ELSIF p_amount < 0 THEN
+        RAISE EXCEPTION 'negative: %', p_amount USING ERRCODE = '22023';
+    END IF;
+    CASE
+        WHEN p_amount > 1000 THEN
+            v_result := 'large';
+        WHEN p_amount > 100 THEN
+            v_result := 'medium';
+        ELSE
+            v_result := 'small';
+    END CASE;
+    FOR v_i IN REVERSE 3..1 LOOP
+        v_result := v_result || v_i;
+    END LOOP;
+    FOREACH v_id IN ARRAY v_ids LOOP
+        CONTINUE WHEN v_id = 1;
+        v_result := v_result || '-' || v_id;
+    END LOOP;
+    <<outer>>
+    WHILE TRUE LOOP
+        EXIT outer;
+    END LOOP;
+    RETURN p_label || ':' || v_result;
+END
+$$;
+
+CREATE FUNCTION order_summary(
+    p_customer bigint
+  , OUT o_count int
+  , OUT o_total numeric
+)
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+    r record;
+BEGIN
+    o_count := 0;
+    o_total := 0;
+    FOR r IN
+        SELECT amount
+        FROM orders
+        WHERE customer_id = p_customer
+            AND status <> 'cancelled'
+        ORDER BY id
+    LOOP
+        o_count := o_count + 1;
+        o_total = o_total + r.amount;
+    END LOOP;
+    SELECT count(*)
+    INTO STRICT o_count
+    FROM orders
+    WHERE customer_id = p_customer;
+END
+$$;
+
+CREATE FUNCTION sets()
+RETURNS SETOF int
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN NEXT 1;
+    RETURN QUERY
+        SELECT id
+        FROM a
+        WHERE id > 1
+        ORDER BY id;
+    RETURN QUERY EXECUTE 'select $1 + 100' USING 5;
+END
+$$;
+
+CREATE FUNCTION safe_div(a numeric, b numeric)
+RETURNS numeric
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN a / b;
+EXCEPTION
+    WHEN division_by_zero THEN
+        RAISE NOTICE 'division by zero: % / %', a, b;
+        RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION add(a int, b int)
+RETURNS int
+LANGUAGE sql
+IMMUTABLE
+STRICT
+RETURN a + b;
+
+CREATE FUNCTION add3(a int, b int, c int)
+RETURNS int
+LANGUAGE sql
+BEGIN ATOMIC
+    SELECT add(add(a, b), c);
+END;
+
+CREATE PROCEDURE bump_points(p_user bigint, p_by int)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE users
+    SET points = points + p_by
+    WHERE id = p_user;
+    RAISE NOTICE 'bumped %', p_user;
+END
+$$;
+
+SELECT
+    classify(NULL)
+  , classify(50)
+  , classify(500, 'y')
+  , classify(5000);
+SELECT classify(-1);
+SELECT *
+FROM order_summary(1);
+SELECT *
+FROM sets()
+ORDER BY 1;
+SELECT
+    safe_div(1, 0)
+  , safe_div(6, 3);
+SELECT
+    add(1, 2)
+  , add3(1, 2, 3);
+CALL bump_points(1, 5);
+SELECT
+    id
+  , points
+FROM users
+ORDER BY id;
+
+DO $$
+DECLARE
+    n int;
+BEGIN
+    PERFORM classify(1);
+    GET DIAGNOSTICS n = ROW_COUNT;
+    RAISE NOTICE 'rows: %', n;
+    BEGIN
+        PERFORM 1 / 0;
+    EXCEPTION
+        WHEN others THEN
+            RAISE NOTICE 'caught: %', sqlerrm;
+    END;
+END
+$$;

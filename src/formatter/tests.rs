@@ -134,6 +134,11 @@ FROM a
     CROSS JOIN d
 ",
     );
+    // FROM の関数も、関数名と括弧の間に空白を入れない
+    check(
+        "select * from generate_series(1, 3) g",
+        "SELECT *\nFROM generate_series(1, 3) g\n",
+    );
     // 括弧で囲んだ結合は、中身を 1 段深くする
     check(
         "select * from (a join b on true) j",
@@ -344,6 +349,15 @@ SELECT
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     )
 ",
+    );
+}
+
+#[test]
+fn string_continuations_keep_their_newlines() {
+    // 同じ行に並べると構文エラーになるので、続きは次の行に書く
+    check(
+        "select 'a'\n'b' as s, 1",
+        "SELECT\n    'a'\n        'b' AS s\n  , 1\n",
     );
 }
 

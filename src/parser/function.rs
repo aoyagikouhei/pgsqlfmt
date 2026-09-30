@@ -28,6 +28,7 @@ const OPTION_STARTS: &[&str] = &[
     "support",
     "set",
     "reset",
+    "return",
     "window",
     "transform",
 ];
@@ -125,6 +126,12 @@ impl<'a> Parser<'a> {
                 self.finish_node();
             } else if self.at_kw("begin") && self.nth_kw(1, "atomic") {
                 self.atomic_body();
+            } else if self.at_kw("return") {
+                // SQL 標準の本体 `RETURN expr`
+                self.start_node(NodeKind::FunctionOption);
+                self.bump_kw();
+                self.expr();
+                self.finish_node();
             } else if self.at_any_kw(OPTION_STARTS) {
                 self.function_option();
             } else {

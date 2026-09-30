@@ -193,7 +193,9 @@ impl<'a> Formatter<'a> {
                 let base = self.w.indent();
                 self.join_expr(node, base);
             }
-            NodeKind::FuncCall => self.inline_glued(node, |e| is_node(e, NodeKind::ArgList)),
+            NodeKind::FuncCall | NodeKind::FunctionTable => {
+                self.inline_glued(node, |e| is_node(e, NodeKind::ArgList))
+            }
             NodeKind::TypeName => self.type_name(node),
             NodeKind::SubscriptExpr => {
                 self.inline_glued(node, |e| is_token(e, TokenKind::LBracket))
@@ -205,6 +207,7 @@ impl<'a> Formatter<'a> {
                     || is_node(e, NodeKind::SubqueryExpr)
             }),
             NodeKind::PrefixExpr => self.prefix_expr(node),
+            NodeKind::Literal => self.literal(node),
             NodeKind::ArgList | NodeKind::ExprList | NodeKind::ParamList => self.paren_list(node),
             NodeKind::BinaryExpr => self.binary_expr(node),
             NodeKind::WindowSpec => self.window_spec(node),
@@ -232,6 +235,17 @@ impl<'a> Formatter<'a> {
         for (i, element) in children(node).into_iter().enumerate() {
             if i > 0 && glued(element) {
                 self.w.glue();
+            }
+            self.element(element);
+        }
+    }
+
+    /// 改行でつないだ文字列（`'a'` 改行 `'b'`）は、改行を残さないと意味が変わるので、続きを次の行に書く
+    fn literal(&mut self, node: &Node<'a>) {
+        let base = self.w.indent();
+        for (i, element) in children(node).into_iter().enumerate() {
+            if i > 0 {
+                self.w.newline(base + INDENT);
             }
             self.element(element);
         }

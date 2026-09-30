@@ -263,6 +263,16 @@ fn primaries() {
         "(FuncCall current_timestamp (ArgList ( (Literal 3) )))"
     );
     assert_eq!(expr("interval '1 day'"), "(TypedLiteral interval '1 day')");
+    // 改行を挟んだ文字列は 1 つにつながる。同じ行や接頭辞付きはつながらない
+    assert_eq!(expr("'a'\n  'b'\n'c'"), "(Literal 'a' 'b' 'c')");
+    assert_eq!(
+        stmts("SELECT 'a' 'b'"),
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 'a')) (Error 'b'))))"
+    );
+    assert_eq!(
+        stmts("SELECT 'a'\nE'b'"),
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 'a')) (Error E'b'))))"
+    );
     assert_eq!(
         expr("(1, 2)"),
         "(RowExpr (ExprList ( (Literal 1) , (Literal 2) )))"
@@ -889,6 +899,11 @@ fn create_function_statements() {
     assert_eq!(
         stmts("CREATE FUNCTION f() RETURNS int AS $$ BEGIN $$; DO LANGUAGE plpgsql $$BEGIN END$$"),
         "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS (FunctionBody $$ (RawStatement BEGIN) $$))) ; (DoStmt DO LANGUAGE plpgsql (FunctionBody $$ (PlBlock BEGIN END) $$))"
+    );
+    // SQL 標準の本体 `RETURN expr`
+    assert_eq!(
+        stmts("CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql RETURN a + 1"),
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( (Param a (TypeName int)) )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption LANGUAGE sql) (FunctionOption RETURN (BinaryExpr (ColumnRef a) + (Literal 1))))"
     );
     // ほかの言語の本体や、引用符の本体はそのまま
     assert_eq!(

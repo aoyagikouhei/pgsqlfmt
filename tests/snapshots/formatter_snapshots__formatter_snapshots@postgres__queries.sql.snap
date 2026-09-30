@@ -1,0 +1,212 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/postgres/queries.sql
+---
+-- 実機検証用。tests/postgres/schema.sql の上で、すべての文がエラーなく実行できること。
+WITH totals AS (
+    SELECT
+        o.customer_id
+      , sum(o.amount) FILTER (WHERE o.status <> 'cancelled') AS total
+      , count(*) cnt
+    FROM orders o
+    GROUP BY o.customer_id
+)
+, ranked AS (
+    SELECT
+        customer_id
+      , total
+      , rank() OVER (ORDER BY total DESC NULLS LAST) AS rnk
+    FROM totals
+)
+SELECT
+    c.id
+  , c."Name"
+  , r.total
+  , r.rnk
+  , CASE
+        WHEN r.total > 10000 THEN 'gold'
+        WHEN r.total > 1000 THEN 'silver'
+        ELSE 'bronze'
+    END AS tier
+FROM customers c
+    JOIN ranked r
+        ON r.customer_id = c.id
+WHERE c.active
+    AND NOT EXISTS (
+        SELECT 1
+        FROM blacklist b
+        WHERE b.customer_id = c.id
+    )
+    AND c.id IN (
+        SELECT customer_id
+        FROM orders
+        WHERE amount BETWEEN 100 AND 100000
+    )
+ORDER BY
+    r.rnk
+  , c.id;
+
+SELECT
+    a.id::text || '-' || coalesce(a.code, 'n/a') AS label
+  , (a.payload -> 'items' ->> 0)::int AS first_item
+  , a.tags[1:2] AS head_tags
+  , CAST(a.price AS numeric(10, 2)) * 1.1 AS with_tax
+  , a.name ILIKE '%foo%' AS is_foo
+  , a.score BETWEEN SYMMETRIC 10 AND 1 AS in_range
+  , a.deleted_at IS NULL AS alive
+  , ARRAY[1, 2, 3] && a.ids AS overlaps
+  , 2 = ANY(a.ids) AS has_two
+  , extract(year FROM a.created_at) AS y
+  , a.code IS NOT DISTINCT FROM NULL AS no_code
+  , -a.score AS neg
+  , 2 ^ 3 ^ 2 AS pow
+  , 10 - 3 - 2 AS sub
+  , NOT a.score > 10 AND a.score < 100 AS logic
+FROM accounts a
+ORDER BY a.id;
+
+SELECT id
+FROM a
+UNION ALL
+SELECT id
+FROM b
+INTERSECT
+(
+    SELECT id
+    FROM c
+    ORDER BY id
+    LIMIT 5
+)
+ORDER BY id;
+
+SELECT
+    x
+  , y
+FROM (
+    VALUES
+        (1, 'one')
+      , (2, 'two')
+) AS v (x, y)
+WHERE x > 1
+    OR y LIKE 'o%'
+ORDER BY x
+OFFSET 0 ROWS
+FETCH FIRST 10 ROWS ONLY;
+
+SELECT
+    status
+  , count(*)
+  , string_agg(id::text, ',' ORDER BY id DESC)
+  , percentile_cont(0.5) WITHIN GROUP (ORDER BY amount)
+FROM orders
+GROUP BY GROUPING SETS ((status), ())
+HAVING count(*) > 0
+ORDER BY status NULLS FIRST;
+
+SELECT
+    c.id
+  , o.id AS order_id
+FROM customers c
+    LEFT OUTER JOIN orders o
+        USING (id)
+    CROSS JOIN LATERAL (
+        SELECT c.score * 2 AS doubled
+    ) d
+WHERE d.doubled >= 0
+ORDER BY
+    1
+  , 2;
+
+SELECT DISTINCT ON (customer_id)
+    customer_id
+  , amount
+FROM orders
+ORDER BY
+    customer_id
+  , amount DESC;
+
+SELECT
+    id
+  , lag(amount) OVER w AS prev
+  , sum(amount) OVER (
+        PARTITION BY customer_id
+        ORDER BY id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS running
+FROM orders
+WINDOW w AS (ORDER BY id)
+ORDER BY id;
+
+SELECT
+    EXISTS (
+        SELECT 1
+        FROM users
+        WHERE active
+    )
+  , (
+        SELECT max(points)
+        FROM users
+    )
+  , ARRAY(
+        SELECT id
+        FROM a
+        ORDER BY id
+    )
+  , ROW(1, 'x');
+
+INSERT INTO staging_stock (sku, qty, batch_id)
+VALUES
+    ('kiwi', 7, 9)
+  , ('lime', 2, 9)
+RETURNING
+    sku
+  , qty;
+
+INSERT INTO stock AS s (sku, qty, updated_at)
+SELECT
+    sku
+  , qty
+  , NULL
+FROM staging_stock
+WHERE batch_id = 1
+ON CONFLICT (sku) DO UPDATE
+    SET qty = s.qty + excluded.qty
+    WHERE s.locked = FALSE
+RETURNING
+    s.sku
+  , s.qty;
+
+UPDATE orders o
+SET
+    status = 'shipped'
+  , (carrier) = (
+        SELECT c.name
+        FROM carriers c
+        WHERE c.id = o.carrier_id
+    )
+FROM carriers c
+WHERE c.id = o.carrier_id
+    AND o.status = 'packed'
+RETURNING
+    o.id
+  , o.status
+  , o.carrier;
+
+DELETE FROM sessions s
+USING users u
+WHERE u.id = s.user_id
+    AND NOT u.active
+RETURNING s.user_id;
+
+SELECT
+    sku
+  , qty
+FROM stock
+ORDER BY sku;
+
+-- 改行を挟んだ文字列はつながる
+SELECT
+    'con'
+        'tinued' AS s
+  , 1;

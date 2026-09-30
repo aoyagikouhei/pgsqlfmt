@@ -5,7 +5,7 @@
 
 use super::Parser;
 use super::keywords::{is_reserved, is_value_keyword};
-use crate::lexer::TokenKind;
+use crate::lexer::{StringPrefix, TokenKind};
 use crate::syntax::NodeKind;
 
 // 結合力。大きいほど強く結びつく。
@@ -282,7 +282,16 @@ impl Parser<'_> {
             return false;
         };
         match token.kind {
-            TokenKind::Number | TokenKind::String { .. } | TokenKind::DollarString { .. } => {
+            TokenKind::String { .. } => {
+                self.start_node(NodeKind::Literal);
+                self.bump();
+                while self.at_string_continuation() {
+                    self.bump();
+                }
+                self.finish_node();
+                true
+            }
+            TokenKind::Number | TokenKind::DollarString { .. } => {
                 self.single_token_node(NodeKind::Literal)
             }
             TokenKind::Param => self.single_token_node(NodeKind::ParamRef),
@@ -296,6 +305,25 @@ impl Parser<'_> {
                 true
             }
             TokenKind::Ident => self.ident_primary(token.text),
+            _ => false,
+        }
+    }
+
+    /// 直前の文字列に続く `'...'` か。PostgreSQL では、改行を含む空白だけを挟んだ文字列はつながって
+    /// 1 つの文字列になる（`'a'` 改行 `'b'` は `'ab'`）。同じ行に並べると構文エラーになる。
+    fn at_string_continuation(&self) -> bool {
+        match &self.tokens[self.pos..] {
+            [space, next, ..] => {
+                space.kind == TokenKind::Whitespace
+                    && space.text.contains('\n')
+                    && matches!(
+                        next.kind,
+                        TokenKind::String {
+                            prefix: StringPrefix::None,
+                            ..
+                        }
+                    )
+            }
             _ => false,
         }
     }
