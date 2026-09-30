@@ -67,6 +67,9 @@ impl Parser<'_> {
         if self.at_kw("returning") {
             self.returning_clause();
         }
+        if self.at_kw("into") {
+            self.result_into_clause();
+        }
     }
 
     /// `ON CONFLICT [(target, ...) [WHERE ...] | ON CONSTRAINT name]
@@ -112,6 +115,9 @@ impl Parser<'_> {
         if self.at_kw("returning") {
             self.returning_clause();
         }
+        if self.at_kw("into") {
+            self.result_into_clause();
+        }
     }
 
     /// `DELETE FROM [ONLY] table [*] [[AS] alias] [USING ...] [WHERE ...] [RETURNING ...]`
@@ -130,6 +136,9 @@ impl Parser<'_> {
         }
         if self.at_kw("returning") {
             self.returning_clause();
+        }
+        if self.at_kw("into") {
+            self.result_into_clause();
         }
     }
 

@@ -1,0 +1,28 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/plpgsql/routines.sql
+---
+CREATE FUNCTION add(a int, b int)
+RETURNS int
+LANGUAGE sql
+IMMUTABLE
+STRICT
+AS $$
+SELECT a + b
+$$;
+
+CREATE PROCEDURE p()
+BEGIN ATOMIC
+    INSERT INTO t
+    VALUES (1);
+    SELECT 1;
+END;
+
+DO $$
+BEGIN
+    PERFORM 1;
+END
+$$;
+
+CALL p();

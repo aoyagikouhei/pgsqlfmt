@@ -472,3 +472,187 @@ fn broken_input_is_kept() {
         "SELECT 1\nWHERE a AND\n    AND b\n",
     );
 }
+
+// ---- 関数・PL/pgSQL ----
+
+#[test]
+fn create_function_options_are_one_per_line() {
+    check(
+        "create or replace function f(a int, b text default 'x') returns table (x int, y text) language sql stable security definer set search_path = public as $$ select 1 $$",
+        "\
+CREATE OR REPLACE FUNCTION f(a int, b text DEFAULT 'x')
+RETURNS TABLE (x int, y text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+SELECT 1
+$$
+",
+    );
+    // SQL の本体の文の間の空行は残す
+    check(
+        "create function f() returns int language sql as $$\nselect 1;\n\nselect 2;\n$$",
+        "CREATE FUNCTION f()\nRETURNS int\nLANGUAGE sql\nAS $$\nSELECT 1;\n\nSELECT 2;\n$$\n",
+    );
+    // ほかの言語の本体はそのまま
+    check(
+        "create function f() returns int as $$\n  return 1\n$$ language plpython3u",
+        "CREATE FUNCTION f()\nRETURNS int\nAS $$\n  return 1\n$$\nLANGUAGE plpython3u\n",
+    );
+}
+
+#[test]
+fn plpgsql_block_layout() {
+    check(
+        "do $$ <<outer>> declare a int := 0; b t.c%type; begin a := 1; if a > 0 then raise notice 'x %', a; elsif a < 0 then null; else return; end if; exception when others then raise; end outer $$",
+        "\
+DO $$
+<<outer>>
+DECLARE
+    a int := 0;
+    b t.c%type;
+BEGIN
+    a := 1;
+    IF a > 0 THEN
+        RAISE NOTICE 'x %', a;
+    ELSIF a < 0 THEN
+        NULL;
+    ELSE
+        RETURN;
+    END IF;
+EXCEPTION
+    WHEN others THEN
+        RAISE;
+END outer
+$$
+",
+    );
+}
+
+#[test]
+fn plpgsql_loops_and_case() {
+    check(
+        "do $$ begin <<l>> for i in 1..10 loop exit l when i > 5; end loop l; for r in select a, b from t loop continue; end loop; case x when 1 then null; else null; end case; end $$",
+        "\
+DO $$
+BEGIN
+    <<l>>
+    FOR i IN 1..10 LOOP
+        EXIT l WHEN i > 5;
+    END LOOP l;
+    FOR r IN
+        SELECT
+            a
+          , b
+        FROM t
+    LOOP
+        CONTINUE;
+    END LOOP;
+    CASE x
+        WHEN 1 THEN
+            NULL;
+        ELSE
+            NULL;
+    END CASE;
+END
+$$
+",
+    );
+}
+
+#[test]
+fn plpgsql_embedded_sql() {
+    check(
+        "do $$ begin select a into strict x from t where id = 1; update t set a = 1 where id = 2 returning a into y; insert into t values (1) returning id into z; return query select 1; open c for select 2; open d(1); perform f(); end $$",
+        "\
+DO $$
+BEGIN
+    SELECT a
+    INTO STRICT x
+    FROM t
+    WHERE id = 1;
+    UPDATE t
+    SET a = 1
+    WHERE id = 2
+    RETURNING a
+    INTO y;
+    INSERT INTO t
+    VALUES (1)
+    RETURNING id
+    INTO z;
+    RETURN QUERY
+        SELECT 1;
+    OPEN c FOR
+        SELECT 2;
+    OPEN d(1);
+    PERFORM f();
+END
+$$
+",
+    );
+    check(
+        "do $$ begin perform f(x), g(x) from t where a; end $$",
+        "\
+DO $$
+BEGIN
+    PERFORM
+        f(x)
+      , g(x)
+    FROM t
+    WHERE a;
+END
+$$
+",
+    );
+}
+
+#[test]
+fn plpgsql_statements_keep_blank_lines_and_comments() {
+    check(
+        "do $$\nbegin\n\n  -- 最初\n  a := 1; -- 行末\n\n  /* 空行のあと */\n  b := 2;\nend\n$$",
+        "\
+DO $$
+BEGIN
+    -- 最初
+    a := 1; -- 行末
+
+    /* 空行のあと */
+    b := 2;
+END
+$$
+",
+    );
+}
+
+#[test]
+fn raise_exception_stays_on_one_line() {
+    check(
+        "do $$ begin raise exception 'x' using errcode = 'P0001'; fetch next from c into r; end $$",
+        "\
+DO $$
+BEGIN
+    RAISE EXCEPTION 'x' USING ERRCODE = 'P0001';
+    FETCH NEXT FROM c INTO r;
+END
+$$
+",
+    );
+}
+
+#[test]
+fn atomic_bodies_and_call() {
+    check(
+        "create procedure p(x int) begin atomic insert into t values (x); select 1; end; call p(1)",
+        "\
+CREATE PROCEDURE p(x int)
+BEGIN ATOMIC
+    INSERT INTO t
+    VALUES (x);
+    SELECT 1;
+END;
+CALL p(1)
+",
+    );
+}

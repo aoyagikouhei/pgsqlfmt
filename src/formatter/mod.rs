@@ -9,6 +9,7 @@
 //!
 //! `RawStatement` / `Error` は元のテキストのまま出す。
 
+mod plpgsql;
 mod stmt;
 #[cfg(test)]
 mod tests;
@@ -30,7 +31,18 @@ pub fn format(src: &str) -> String {
 
 /// 中身を細かく解釈していない句で、大文字にするキーワード
 const LOOSE_KEYWORDS: &[&str] = &[
+    "absolute",
+    "all",
     "and",
+    "backward",
+    "chain",
+    "forward",
+    "from",
+    "in",
+    "into",
+    "last",
+    "prior",
+    "relative",
     "between",
     "current",
     "exclude",
@@ -135,6 +147,8 @@ impl<'a> Formatter<'a> {
             NodeKind::SelectStmt => self.select_stmt(stmt, base),
             NodeKind::InsertStmt => self.insert_stmt(stmt, base),
             NodeKind::UpdateStmt | NodeKind::DeleteStmt => self.update_or_delete(stmt, base),
+            NodeKind::CreateFunctionStmt => self.create_function(stmt, base),
+            NodeKind::DoStmt => self.do_stmt(stmt, base),
             _ => self.node(stmt),
         }
     }
@@ -161,9 +175,10 @@ impl<'a> Formatter<'a> {
                 self.join_expr(node, base);
             }
             NodeKind::FuncCall => self.inline_glued(node, |e| is_node(e, NodeKind::ArgList)),
-            NodeKind::TypeName | NodeKind::SubscriptExpr => self.inline_glued(node, |e| {
-                is_token(e, TokenKind::LParen) || is_token(e, TokenKind::LBracket)
-            }),
+            NodeKind::TypeName => self.type_name(node),
+            NodeKind::SubscriptExpr => {
+                self.inline_glued(node, |e| is_token(e, TokenKind::LBracket))
+            }
             NodeKind::CastCall => self.inline_glued(node, |e| is_token(e, TokenKind::LParen)),
             NodeKind::ArrayExpr | NodeKind::RowExpr => self.inline_glued(node, |e| {
                 is_token(e, TokenKind::LBracket)
@@ -173,6 +188,11 @@ impl<'a> Formatter<'a> {
             NodeKind::PrefixExpr => self.prefix_expr(node),
             NodeKind::FetchClause | NodeKind::LockingClause | NodeKind::FrameClause => {
                 self.loose(node)
+            }
+            NodeKind::FunctionBody => {
+                let base = self.w.indent();
+                self.inline(node);
+                self.w.set_indent(base);
             }
             _ => self.inline(node),
         }
@@ -191,6 +211,25 @@ impl<'a> Formatter<'a> {
                 self.w.glue();
             }
             self.element(element);
+        }
+    }
+
+    /// `numeric(10, 2)` / `int[]` / `tbl.col%TYPE` は空白を入れない
+    fn type_name(&mut self, node: &Node<'a>) {
+        let mut after_percent = false;
+        for (i, element) in children(node).into_iter().enumerate() {
+            let percent =
+                as_token(element).is_some_and(|t| t.kind == TokenKind::Operator && t.text == "%");
+            if i > 0
+                && (after_percent
+                    || percent
+                    || is_token(element, TokenKind::LParen)
+                    || is_token(element, TokenKind::LBracket))
+            {
+                self.w.glue();
+            }
+            self.element(element);
+            after_percent = percent;
         }
     }
 

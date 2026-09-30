@@ -155,6 +155,17 @@ impl<'a> Writer<'a> {
             .is_some_and(|ws| count_newlines(ws) >= 2)
     }
 
+    /// このトークンの前のコメントの、直前の空行を出さないようにする（ブロックの先頭の空行を消すため）
+    pub(super) fn drop_blank_line_before(&mut self, token: &Token<'a>) {
+        if let Some(first) = self
+            .comments
+            .get_mut(&token.offset)
+            .and_then(|a| a.leading.first_mut())
+        {
+            first.blank_before = false;
+        }
+    }
+
     /// 現在の行の字下げ
     pub(super) fn indent(&self) -> usize {
         self.indent
@@ -388,6 +399,7 @@ fn no_space_before(kind: TokenKind) -> bool {
             | TokenKind::Dot
             | TokenKind::DoubleColon
             | TokenKind::Colon
+            | TokenKind::DotDot
     )
 }
 
@@ -399,5 +411,6 @@ fn no_space_after(kind: TokenKind) -> bool {
             | TokenKind::Dot
             | TokenKind::DoubleColon
             | TokenKind::Colon
+            | TokenKind::DotDot
     )
 }

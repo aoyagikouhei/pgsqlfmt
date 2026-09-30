@@ -9,7 +9,9 @@
 
 mod dml;
 mod expr;
+mod function;
 mod keywords;
+mod plpgsql;
 mod select;
 #[cfg(test)]
 mod tests;
@@ -20,21 +22,8 @@ use crate::lexer::{Token, TokenKind, tokenize};
 use crate::syntax::{Element, Node, NodeKind};
 
 pub fn parse(src: &str) -> Node<'_> {
-    let mut p = Parser::new(src);
-    while let Some(token) = p.current() {
-        if token.kind == TokenKind::Semicolon {
-            p.bump();
-            continue;
-        }
-        p.statement();
-        if !p.at_statement_end() {
-            p.start_node(NodeKind::Error);
-            while !p.at_statement_end() {
-                p.bump();
-            }
-            p.finish_node();
-        }
-    }
+    let mut p = Parser::new(tokenize(src));
+    p.statements();
     p.finish()
 }
 
@@ -53,16 +42,32 @@ struct Parser<'a> {
     stack: Vec<(NodeKind, Vec<Element<'a>>)>,
     /// 無限ループの検出用
     steps: Cell<u32>,
+    /// 句の終わりとして扱う追加のキーワード（`FOR r IN SELECT ... LOOP` の `loop` など）
+    stops: Vec<&'static str>,
 }
 
 impl<'a> Parser<'a> {
-    fn new(src: &'a str) -> Self {
+    fn new(tokens: Vec<Token<'a>>) -> Self {
         Parser {
-            tokens: tokenize(src),
+            tokens,
             pos: 0,
             stack: vec![(NodeKind::Root, Vec::new())],
             steps: Cell::new(0),
+            stops: Vec::new(),
         }
+    }
+
+    /// `stops` を句の終わりのキーワードに加えて `f` を実行する
+    fn with_stops<R>(&mut self, stops: &[&'static str], f: impl FnOnce(&mut Self) -> R) -> R {
+        let saved = self.stops.len();
+        self.stops.extend_from_slice(stops);
+        let result = f(self);
+        self.stops.truncate(saved);
+        result
+    }
+
+    fn at_stop_keyword(&self) -> bool {
+        self.stops.iter().any(|kw| self.at_kw(kw))
     }
 
     fn finish(mut self) -> Node<'a> {
@@ -292,8 +297,32 @@ impl<'a> Parser<'a> {
 
     // ---- 文 ----
 
+    /// `;` で区切られた文の並び（入力全体、または `LANGUAGE sql` の関数本体）
+    fn statements(&mut self) {
+        while let Some(token) = self.current() {
+            if token.kind == TokenKind::Semicolon {
+                self.bump();
+                continue;
+            }
+            self.statement();
+            if !self.at_statement_end() {
+                self.start_node(NodeKind::Error);
+                while !self.at_statement_end() {
+                    self.bump();
+                }
+                self.finish_node();
+            }
+        }
+    }
+
     fn statement(&mut self) {
-        if !self.statement_body() {
+        if self.at_create_function() {
+            self.create_function_stmt();
+        } else if self.at_kw("do") {
+            self.do_stmt();
+        } else if self.at_kw("call") {
+            self.call_stmt();
+        } else if !self.statement_body() {
             self.raw_statement();
         }
     }

@@ -72,6 +72,65 @@ pub enum NodeKind {
     UsingClause,
     ReturningClause,
 
+    // ---- 関数・プロシージャ ----
+    /// `CREATE [OR REPLACE] FUNCTION / PROCEDURE`
+    CreateFunctionStmt,
+    /// 引数や `RETURNS TABLE` の列の並び
+    ParamList,
+    Param,
+    /// `RETURNS type` / `RETURNS TABLE (...)`
+    ReturnsClause,
+    /// `LANGUAGE plpgsql` / `AS $$...$$` / `IMMUTABLE` など
+    FunctionOption,
+    /// 中身を解析したドル引用符の本体（`$tag$` と中身と `$tag$`）
+    FunctionBody,
+    /// `BEGIN ATOMIC ... END`
+    AtomicBody,
+    DoStmt,
+    CallStmt,
+
+    // ---- PL/pgSQL ----
+    /// `[<<label>>] [DECLARE ...] BEGIN ... [EXCEPTION ...] END [label];`
+    PlBlock,
+    /// `<<label>>`
+    PlLabel,
+    PlDeclareSection,
+    /// 変数・カーソル・別名の宣言
+    PlDecl,
+    PlExceptionSection,
+    /// `WHEN cond THEN ...`
+    PlExceptionHandler,
+    /// `target := expr;`
+    PlAssign,
+    PlIf,
+    /// `ELSIF cond THEN ...`
+    PlElsif,
+    /// IF / CASE の `ELSE ...`
+    PlElse,
+    PlCase,
+    /// CASE 文の `WHEN ... THEN ...`
+    PlCaseWhen,
+    /// `LOOP` / `WHILE` / `FOR` / `FOREACH`
+    PlLoop,
+    /// `EXIT` / `CONTINUE`
+    PlExit,
+    PlReturn,
+    PlRaise,
+    PlAssert,
+    /// `PERFORM ...`（SELECT の代わりに PERFORM を書く問い合わせ）
+    PlPerform,
+    PlExecute,
+    PlGetDiagnostics,
+    PlOpen,
+    /// `NULL;`
+    PlNull,
+    /// 中身を細かく解釈しない文（`FETCH` / `MOVE` / `CLOSE` / `COMMIT` / `ROLLBACK`）
+    PlSimpleStmt,
+    /// 本体の中の SQL 文と、その後ろの `;`
+    PlSqlStmt,
+    /// `USING expr, ...`
+    PlUsing,
+
     // ---- 式 ----
     BinaryExpr,
     PrefixExpr,

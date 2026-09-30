@@ -18,7 +18,7 @@ impl Parser<'_> {
     }
 
     pub(super) fn at_clause_keyword(&self) -> bool {
-        self.at_any_kw(CLAUSE_KEYWORDS)
+        self.at_any_kw(CLAUSE_KEYWORDS) || self.at_stop_keyword()
     }
 
     pub(super) fn select_stmt(&mut self) {
@@ -51,6 +51,9 @@ impl Parser<'_> {
                     self.eat_kw("row");
                 }
                 self.finish_node();
+            } else if self.at_kw("into") {
+                // PL/pgSQL では INTO を問い合わせの最後にも書ける
+                self.result_into_clause();
             } else if self.at_kw("fetch") {
                 self.keyword_clause(NodeKind::FetchClause);
             } else if self.at_kw("for") {
@@ -159,7 +162,7 @@ impl Parser<'_> {
         true
     }
 
-    fn simple_select(&mut self) {
+    pub(super) fn simple_select(&mut self) {
         self.start_node(NodeKind::SimpleSelect);
 
         self.start_node(NodeKind::SelectClause);
@@ -175,14 +178,7 @@ impl Parser<'_> {
         self.finish_node();
 
         if self.at_kw("into") {
-            self.start_node(NodeKind::IntoClause);
-            self.bump_kw();
-            if !self.eat_kw("temporary") && !self.eat_kw("temp") {
-                self.eat_kw("unlogged");
-            }
-            self.eat_kw("table");
-            self.name_path();
-            self.finish_node();
+            self.result_into_clause();
         }
         if self.at_kw("from") {
             self.table_source_clause();
@@ -216,6 +212,18 @@ impl Parser<'_> {
         self.finish_node();
     }
 
+    /// `INTO [TEMP | UNLOGGED] [TABLE] name`（SQL）/ `INTO [STRICT] target, ...`（PL/pgSQL）
+    pub(super) fn result_into_clause(&mut self) {
+        self.start_node(NodeKind::IntoClause);
+        self.bump_kw();
+        if !self.eat_kw("strict") && !self.eat_kw("temporary") && !self.eat_kw("temp") {
+            self.eat_kw("unlogged");
+        }
+        self.eat_kw("table");
+        while self.name_path() > 0 && self.eat(TokenKind::Comma) {}
+        self.finish_node();
+    }
+
     pub(super) fn table_source_clause(&mut self) {
         self.start_node(NodeKind::FromClause);
         self.bump_kw();
@@ -245,6 +253,7 @@ impl Parser<'_> {
             TokenKind::Ident => {
                 !is_reserved(t.text)
                     && !not_bare.iter().any(|kw| t.text.eq_ignore_ascii_case(kw))
+                    && !self.at_stop_keyword()
                     && !(table_alias
                         && (is_join_keyword(t.text) || t.text.eq_ignore_ascii_case("tablesample")))
             }

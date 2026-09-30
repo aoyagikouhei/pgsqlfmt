@@ -9,8 +9,8 @@ use sql_formatter::parser::parse;
 fn fixtures() -> Vec<String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let mut sources = Vec::new();
-    for sub in ["lexer", "parser"] {
-        for entry in std::fs::read_dir(dir.join(sub)).unwrap() {
+    for sub in std::fs::read_dir(dir).unwrap() {
+        for entry in std::fs::read_dir(sub.unwrap().path()).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|e| e == "sql") {
                 sources.push(std::fs::read_to_string(path).unwrap());

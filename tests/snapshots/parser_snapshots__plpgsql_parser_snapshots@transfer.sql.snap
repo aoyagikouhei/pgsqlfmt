@@ -1,0 +1,546 @@
+---
+source: tests/parser_snapshots.rs
+expression: debug_tree(path)
+input_file: tests/fixtures/plpgsql/transfer.sql
+---
+Root
+  CreateFunctionStmt
+    Keyword "create"
+    Keyword "or"
+    Keyword "replace"
+    Keyword "function"
+    Ident "public"
+    Dot "."
+    Ident "transfer"
+    ParamList
+      LParen "("
+      Param
+        Ident "p_from"
+        TypeName
+          Ident "bigint"
+      Comma ","
+      Param
+        Ident "p_to"
+        TypeName
+          Ident "bigint"
+      Comma ","
+      Param
+        Ident "p_amount"
+        TypeName
+          Ident "numeric"
+          LParen "("
+          Number "12"
+          Comma ","
+          Number "2"
+          RParen ")"
+        Keyword "default"
+        Literal
+          Number "0"
+      Comma ","
+      Param
+        Keyword "out"
+        Ident "o_balance"
+        TypeName
+          Ident "numeric"
+      RParen ")"
+    ReturnsClause
+      Keyword "returns"
+      TypeName
+        Ident "numeric"
+    FunctionOption
+      Keyword "language"
+      Ident "plpgsql"
+    FunctionOption
+      Keyword "security"
+      Keyword "definer"
+    FunctionOption
+      Keyword "set"
+      Ident "search_path"
+      Operator "="
+      Ident "public"
+      Comma ","
+      Ident "pg_temp"
+    FunctionOption
+      Keyword "as"
+      FunctionBody
+        DollarDelimiter "$body$"
+        PlBlock
+          PlLabel
+            Operator "<<"
+            Ident "main"
+            Operator ">>"
+          PlDeclareSection
+            Keyword "declare"
+            PlDecl
+              Ident "v_balance"
+              TypeName
+                Ident "accounts"
+                Dot "."
+                Ident "balance"
+                Operator "%"
+                Ident "type"
+              Semicolon ";"
+            PlDecl
+              Ident "v_row"
+              TypeName
+                Ident "accounts"
+                Operator "%"
+                Ident "rowtype"
+              Semicolon ";"
+            PlDecl
+              Ident "c_log"
+              Keyword "cursor"
+              LParen "("
+              Ident "p_id"
+              Ident "bigint"
+              RParen ")"
+              Keyword "for"
+              SelectStmt
+                SimpleSelect
+                  SelectClause
+                    Keyword "select"
+                    TargetItem
+                      ColumnRef
+                        Operator "*"
+                  FromClause
+                    Keyword "from"
+                    TableRef
+                      Ident "logs"
+                  WhereClause
+                    Keyword "where"
+                    BinaryExpr
+                      ColumnRef
+                        Ident "account_id"
+                      Operator "="
+                      ColumnRef
+                        Ident "p_id"
+                OrderByClause
+                  Keyword "order"
+                  Keyword "by"
+                  SortItem
+                    ColumnRef
+                      Ident "id"
+              Semicolon ";"
+            PlDecl
+              Ident "k"
+              Keyword "constant"
+              TypeName
+                Ident "int"
+              ColonEquals ":="
+              Literal
+                Number "10"
+              Semicolon ";"
+            PlDecl
+              Ident "v_ids"
+              TypeName
+                Ident "bigint"
+                LBracket "["
+                RBracket "]"
+              Keyword "default"
+              Literal
+                String "'{}'"
+              Semicolon ";"
+          Keyword "begin"
+          LineComment "-- 残高の確認"
+          PlSqlStmt
+            SelectStmt
+              SimpleSelect
+                SelectClause
+                  Keyword "select"
+                  TargetItem
+                    ColumnRef
+                      Ident "balance"
+                IntoClause
+                  Keyword "into"
+                  Keyword "strict"
+                  Ident "v_balance"
+                FromClause
+                  Keyword "from"
+                  TableRef
+                    Ident "accounts"
+                WhereClause
+                  Keyword "where"
+                  BinaryExpr
+                    ColumnRef
+                      Ident "id"
+                    Operator "="
+                    ColumnRef
+                      Ident "p_from"
+              LockingClause
+                Keyword "for"
+                Ident "update"
+            Semicolon ";"
+          PlIf
+            Keyword "if"
+            BinaryExpr
+              ColumnRef
+                Ident "v_balance"
+              Operator "<"
+              ColumnRef
+                Ident "p_amount"
+            Keyword "then"
+            PlRaise
+              Keyword "raise"
+              Keyword "exception"
+              Literal
+                String "'insufficient balance: % < %'"
+              Comma ","
+              ColumnRef
+                Ident "v_balance"
+              Comma ","
+              ColumnRef
+                Ident "p_amount"
+              PlUsing
+                Keyword "using"
+                Keyword "errcode"
+                Operator "="
+                Literal
+                  String "'P0001'"
+                Comma ","
+                Keyword "hint"
+                Operator "="
+                Literal
+                  String "'check'"
+              Semicolon ";"
+            PlElsif
+              Keyword "elsif"
+              BinaryExpr
+                ColumnRef
+                  Ident "p_amount"
+                Operator "="
+                Literal
+                  Number "0"
+              Keyword "then"
+              PlReturn
+                Keyword "return"
+                Literal
+                  Number "0"
+                Semicolon ";"
+            PlElse
+              Keyword "else"
+              PlSqlStmt
+                UpdateStmt
+                  Keyword "update"
+                  TableRef
+                    Ident "accounts"
+                  SetClause
+                    Keyword "set"
+                    SetItem
+                      ColumnRef
+                        Ident "balance"
+                      Operator "="
+                      BinaryExpr
+                        ColumnRef
+                          Ident "balance"
+                        Operator "-"
+                        ColumnRef
+                          Ident "p_amount"
+                  WhereClause
+                    Keyword "where"
+                    BinaryExpr
+                      ColumnRef
+                        Ident "id"
+                      Operator "="
+                      ColumnRef
+                        Ident "p_from"
+                  ReturningClause
+                    Keyword "returning"
+                    TargetItem
+                      ColumnRef
+                        Ident "balance"
+                  IntoClause
+                    Keyword "into"
+                    Ident "o_balance"
+                Semicolon ";"
+            Keyword "end"
+            Keyword "if"
+            Semicolon ";"
+          PlCase
+            Keyword "case"
+            ColumnRef
+              Ident "p_amount"
+            PlCaseWhen
+              Keyword "when"
+              Literal
+                Number "1"
+              Comma ","
+              Literal
+                Number "2"
+              Keyword "then"
+              PlAssign
+                ColumnRef
+                  Ident "v_balance"
+                ColonEquals ":="
+                Literal
+                  Number "1"
+                Semicolon ";"
+            PlElse
+              Keyword "else"
+              PlNull
+                Keyword "null"
+                Semicolon ";"
+            Keyword "end"
+            Keyword "case"
+            Semicolon ";"
+          PlLoop
+            Keyword "for"
+            Ident "r"
+            Keyword "in"
+            SelectStmt
+              SimpleSelect
+                SelectClause
+                  Keyword "select"
+                  TargetItem
+                    ColumnRef
+                      Ident "id"
+                  Comma ","
+                  TargetItem
+                    ColumnRef
+                      Ident "name"
+                FromClause
+                  Keyword "from"
+                  TableRef
+                    Ident "users"
+                WhereClause
+                  Keyword "where"
+                  ColumnRef
+                    Ident "active"
+            Keyword "loop"
+            PlExit
+              Keyword "continue"
+              Keyword "when"
+              BinaryExpr
+                ColumnRef
+                  Ident "r"
+                  Dot "."
+                  Ident "id"
+                Operator "="
+                Literal
+                  Number "0"
+              Semicolon ";"
+            PlPerform
+              SimpleSelect
+                SelectClause
+                  Keyword "perform"
+                  TargetItem
+                    FuncCall
+                      Ident "notify_user"
+                      ArgList
+                        LParen "("
+                        ColumnRef
+                          Ident "r"
+                          Dot "."
+                          Ident "id"
+                        RParen ")"
+              Semicolon ";"
+            Keyword "end"
+            Keyword "loop"
+            Semicolon ";"
+          PlLoop
+            Keyword "for"
+            Ident "i"
+            Keyword "in"
+            Keyword "reverse"
+            Literal
+              Number "10"
+            DotDot ".."
+            Literal
+              Number "1"
+            Keyword "by"
+            Literal
+              Number "2"
+            Keyword "loop"
+            PlExit
+              Keyword "exit"
+              Ident "main"
+              Keyword "when"
+              BinaryExpr
+                ColumnRef
+                  Ident "i"
+                Operator "<"
+                Literal
+                  Number "3"
+              Semicolon ";"
+            Keyword "end"
+            Keyword "loop"
+            Semicolon ";"
+          PlLoop
+            Keyword "foreach"
+            Ident "v_id"
+            Keyword "slice"
+            Literal
+              Number "1"
+            Keyword "in"
+            Keyword "array"
+            ColumnRef
+              Ident "v_ids"
+            Keyword "loop"
+            PlAssign
+              ColumnRef
+                Ident "v_balance"
+              Operator "="
+              BinaryExpr
+                ColumnRef
+                  Ident "v_balance"
+                Operator "+"
+                Literal
+                  Number "1"
+              Semicolon ";"
+            Keyword "end"
+            Keyword "loop"
+            Semicolon ";"
+          PlLoop
+            Keyword "while"
+            BinaryExpr
+              ColumnRef
+                Ident "v_balance"
+              Operator ">"
+              Literal
+                Number "0"
+            Keyword "loop"
+            PlAssign
+              ColumnRef
+                Ident "v_balance"
+              ColonEquals ":="
+              BinaryExpr
+                ColumnRef
+                  Ident "v_balance"
+                Operator "-"
+                ColumnRef
+                  Ident "k"
+              Semicolon ";"
+            Keyword "end"
+            Keyword "loop"
+            Semicolon ";"
+          PlLoop
+            Keyword "loop"
+            PlExit
+              Keyword "exit"
+              Semicolon ";"
+            Keyword "end"
+            Keyword "loop"
+            Semicolon ";"
+          PlExecute
+            Keyword "execute"
+            FuncCall
+              Ident "format"
+              ArgList
+                LParen "("
+                Literal
+                  String "'select count(*) from %I'"
+                Comma ","
+                Literal
+                  String "'logs'"
+                RParen ")"
+            IntoClause
+              Keyword "into"
+              Ident "v_balance"
+            PlUsing
+              Keyword "using"
+              ColumnRef
+                Ident "p_from"
+            Semicolon ";"
+          PlGetDiagnostics
+            Keyword "get"
+            Keyword "diagnostics"
+            Ident "k"
+            Operator "="
+            Keyword "row_count"
+            Semicolon ";"
+          PlOpen
+            Keyword "open"
+            Ident "c_log"
+            ArgList
+              LParen "("
+              ColumnRef
+                Ident "p_from"
+              RParen ")"
+            Semicolon ";"
+          PlSimpleStmt
+            Keyword "fetch"
+            Ident "next"
+            Ident "from"
+            Ident "c_log"
+            Ident "into"
+            Ident "v_row"
+            Semicolon ";"
+          PlSimpleStmt
+            Keyword "close"
+            Ident "c_log"
+            Semicolon ";"
+          PlSqlStmt
+            RawStatement
+              Ident "create"
+              Ident "temp"
+              Ident "table"
+              Ident "tmp"
+              LParen "("
+              Ident "id"
+              Ident "int"
+              RParen ")"
+              Ident "on"
+              Ident "commit"
+              Ident "drop"
+            Semicolon ";"
+          PlAssert
+            Keyword "assert"
+            BinaryExpr
+              ColumnRef
+                Ident "v_balance"
+              Operator ">="
+              Literal
+                Number "0"
+            Comma ","
+            Literal
+              String "'negative'"
+            Semicolon ";"
+          PlReturn
+            Keyword "return"
+            Keyword "query"
+            SelectStmt
+              SimpleSelect
+                SelectClause
+                  Keyword "select"
+                  TargetItem
+                    Literal
+                      Number "1"
+            Semicolon ";"
+          PlReturn
+            Keyword "return"
+            Keyword "next"
+            Semicolon ";"
+          PlExceptionSection
+            Keyword "exception"
+            PlExceptionHandler
+              Keyword "when"
+              Ident "division_by_zero"
+              Keyword "or"
+              Ident "unique_violation"
+              Keyword "then"
+              PlRaise
+                Keyword "raise"
+                Keyword "notice"
+                Literal
+                  String "'error: %'"
+                Comma ","
+                ColumnRef
+                  Ident "sqlerrm"
+                Semicolon ";"
+            PlExceptionHandler
+              Keyword "when"
+              Keyword "sqlstate"
+              Literal
+                String "'22012'"
+              Keyword "then"
+              PlBlock
+                Keyword "begin"
+                PlSimpleStmt
+                  Keyword "rollback"
+                  Semicolon ";"
+                Keyword "end"
+                Semicolon ";"
+          Keyword "end"
+          Ident "main"
+          Semicolon ";"
+        DollarDelimiter "$body$"
+  Semicolon ";"

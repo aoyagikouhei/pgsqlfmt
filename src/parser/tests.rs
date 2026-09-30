@@ -716,3 +716,197 @@ fn unterminated_input_is_kept() {
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ParenExpr ( (ParenExpr ( (ParenExpr ( (Literal 1))))))))"
     );
 }
+
+// ---- 関数・PL/pgSQL ----
+
+/// `DO $$<body>$$` の本体（区切りを除く）の S 式
+fn pl(body: &str) -> String {
+    let src = format!("DO $${body}$$");
+    let root = parse_checked(&src);
+    let body = find(&root, NodeKind::FunctionBody).expect("本体が解析されていない");
+    let inner = sexpr(body);
+    inner
+        .strip_prefix("(FunctionBody $$ ")
+        .and_then(|s| s.strip_suffix(" $$)"))
+        .unwrap_or_else(|| panic!("{inner}"))
+        .to_string()
+}
+
+#[test]
+fn plpgsql_blocks_and_declarations() {
+    assert_eq!(
+        pl(
+            "<<l>> DECLARE a int := 1; b t.c%TYPE; c CONSTANT text NOT NULL DEFAULT 'x'; d ALIAS FOR $1; e CURSOR (p int) FOR SELECT p; BEGIN END l;"
+        ),
+        "(PlBlock (PlLabel << l >>) (PlDeclareSection DECLARE (PlDecl a (TypeName int) := (Literal 1) ;) (PlDecl b (TypeName t . c % TYPE) ;) (PlDecl c CONSTANT (TypeName text) NOT NULL DEFAULT (Literal 'x') ;) (PlDecl d ALIAS FOR $1 ;) (PlDecl e CURSOR ( p int ) FOR (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef p))))) ;)) BEGIN END l ;)"
+    );
+    assert_eq!(
+        pl("DECLARE a int; DECLARE b text COLLATE \"C\"; c CURSOR IS SELECT 1; BEGIN END"),
+        "(PlBlock (PlDeclareSection DECLARE (PlDecl a (TypeName int) ;) DECLARE (PlDecl b (TypeName text) COLLATE \"C\" ;) (PlDecl c CURSOR IS (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ;)) BEGIN END)"
+    );
+    // 最後の `;` は省略できる
+    assert_eq!(pl("BEGIN NULL; END"), "(PlBlock BEGIN (PlNull NULL ;) END)");
+}
+
+#[test]
+fn plpgsql_assignments_and_sql() {
+    assert_eq!(
+        pl(
+            "BEGIN x := 1; y = 2; r.f[1] := 3; SELECT a INTO STRICT x, y FROM t; UPDATE t SET a = 1 RETURNING a INTO x; CREATE TEMP TABLE z (i int); END"
+        ),
+        "(PlBlock BEGIN (PlAssign (ColumnRef x) := (Literal 1) ;) (PlAssign (ColumnRef y) = (Literal 2) ;) (PlAssign (SubscriptExpr (ColumnRef r . f) [ (Literal 1) ]) := (Literal 3) ;) (PlSqlStmt (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (IntoClause INTO STRICT x , y) (FromClause FROM (TableRef t)))) ;) (PlSqlStmt (UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))) (ReturningClause RETURNING (TargetItem (ColumnRef a))) (IntoClause INTO x)) ;) (PlSqlStmt (RawStatement CREATE TEMP TABLE z ( i int )) ;) END)"
+    );
+    // INTO は問い合わせの最後にも書ける
+    assert_eq!(
+        pl("BEGIN SELECT a FROM t INTO x; END"),
+        "(PlBlock BEGIN (PlSqlStmt (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (FromClause FROM (TableRef t))) (IntoClause INTO x)) ;) END)"
+    );
+}
+
+#[test]
+fn plpgsql_control_flow() {
+    assert_eq!(
+        pl("BEGIN IF a THEN NULL; ELSIF b THEN NULL; ELSEIF c THEN NULL; ELSE NULL; END IF; END"),
+        "(PlBlock BEGIN (PlIf IF (ColumnRef a) THEN (PlNull NULL ;) (PlElsif ELSIF (ColumnRef b) THEN (PlNull NULL ;)) (PlElsif ELSEIF (ColumnRef c) THEN (PlNull NULL ;)) (PlElse ELSE (PlNull NULL ;)) END IF ;) END)"
+    );
+    assert_eq!(
+        pl("BEGIN CASE x WHEN 1, 2 THEN NULL; ELSE NULL; END CASE; END"),
+        "(PlBlock BEGIN (PlCase CASE (ColumnRef x) (PlCaseWhen WHEN (Literal 1) , (Literal 2) THEN (PlNull NULL ;)) (PlElse ELSE (PlNull NULL ;)) END CASE ;) END)"
+    );
+    // 問い合わせの FOR では LOOP を別名にしない
+    assert_eq!(
+        pl(
+            "BEGIN <<l>> FOR r IN SELECT a FROM t LOOP EXIT l WHEN r.a > 1; CONTINUE; END LOOP l; END"
+        ),
+        "(PlBlock BEGIN (PlLoop (PlLabel << l >>) FOR r IN (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (FromClause FROM (TableRef t)))) LOOP (PlExit EXIT l WHEN (BinaryExpr (ColumnRef r . a) > (Literal 1)) ;) (PlExit CONTINUE ;) END LOOP l ;) END)"
+    );
+    assert_eq!(
+        pl(
+            "BEGIN FOR i IN REVERSE 10..1 BY 2 LOOP END LOOP; FOR r IN EXECUTE q USING 1 LOOP END LOOP; FOR r IN c(1) LOOP END LOOP; END"
+        ),
+        "(PlBlock BEGIN (PlLoop FOR i IN REVERSE (Literal 10) .. (Literal 1) BY (Literal 2) LOOP END LOOP ;) (PlLoop FOR r IN EXECUTE (ColumnRef q) (PlUsing USING (Literal 1)) LOOP END LOOP ;) (PlLoop FOR r IN (FuncCall c (ArgList ( (Literal 1) ))) LOOP END LOOP ;) END)"
+    );
+    assert_eq!(
+        pl(
+            "BEGIN FOREACH x SLICE 1 IN ARRAY a LOOP END LOOP; WHILE x LOOP END LOOP; LOOP END LOOP; END"
+        ),
+        "(PlBlock BEGIN (PlLoop FOREACH x SLICE (Literal 1) IN ARRAY (ColumnRef a) LOOP END LOOP ;) (PlLoop WHILE (ColumnRef x) LOOP END LOOP ;) (PlLoop LOOP END LOOP ;) END)"
+    );
+}
+
+#[test]
+fn plpgsql_other_statements() {
+    assert_eq!(
+        pl(
+            "BEGIN RETURN; RETURN x + 1; RETURN NEXT r; RETURN QUERY SELECT 1; RETURN QUERY EXECUTE q USING a, b; END"
+        ),
+        "(PlBlock BEGIN (PlReturn RETURN ;) (PlReturn RETURN (BinaryExpr (ColumnRef x) + (Literal 1)) ;) (PlReturn RETURN NEXT (ColumnRef r) ;) (PlReturn RETURN QUERY (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ;) (PlReturn RETURN QUERY EXECUTE (ColumnRef q) (PlUsing USING (ColumnRef a) , (ColumnRef b)) ;) END)"
+    );
+    assert_eq!(
+        pl(
+            "BEGIN RAISE; RAISE 'x'; RAISE NOTICE 'a %', b; RAISE EXCEPTION USING MESSAGE = 'm', ERRCODE = 'P0001'; RAISE SQLSTATE '22012'; RAISE division_by_zero; END"
+        ),
+        "(PlBlock BEGIN (PlRaise RAISE ;) (PlRaise RAISE (Literal 'x') ;) (PlRaise RAISE NOTICE (Literal 'a %') , (ColumnRef b) ;) (PlRaise RAISE EXCEPTION (PlUsing USING MESSAGE = (Literal 'm') , ERRCODE = (Literal 'P0001')) ;) (PlRaise RAISE SQLSTATE (Literal '22012') ;) (PlRaise RAISE (ColumnRef division_by_zero) ;) END)"
+    );
+    assert_eq!(
+        pl(
+            "BEGIN PERFORM f(1) FROM t; EXECUTE q INTO x USING 1; GET STACKED DIAGNOSTICS a = ROW_COUNT, b := PG_CONTEXT; ASSERT a > 0, 'm'; CALL p(1); END"
+        ),
+        "(PlBlock BEGIN (PlPerform (SimpleSelect (SelectClause PERFORM (TargetItem (FuncCall f (ArgList ( (Literal 1) ))))) (FromClause FROM (TableRef t))) ;) (PlExecute EXECUTE (ColumnRef q) (IntoClause INTO x) (PlUsing USING (Literal 1)) ;) (PlGetDiagnostics GET STACKED DIAGNOSTICS a = ROW_COUNT , b := PG_CONTEXT ;) (PlAssert ASSERT (BinaryExpr (ColumnRef a) > (Literal 0)) , (Literal 'm') ;) (PlSqlStmt (CallStmt CALL (FuncCall p (ArgList ( (Literal 1) )))) ;) END)"
+    );
+    assert_eq!(
+        pl(
+            "BEGIN OPEN c FOR SELECT 1; OPEN c(1); OPEN c NO SCROLL FOR EXECUTE q; FETCH NEXT FROM c INTO r; CLOSE c; COMMIT AND CHAIN; END"
+        ),
+        "(PlBlock BEGIN (PlOpen OPEN c FOR (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ;) (PlOpen OPEN c (ArgList ( (Literal 1) )) ;) (PlOpen OPEN c NO SCROLL FOR EXECUTE (ColumnRef q) ;) (PlSimpleStmt FETCH NEXT FROM c INTO r ;) (PlSimpleStmt CLOSE c ;) (PlSimpleStmt COMMIT AND CHAIN ;) END)"
+    );
+}
+
+#[test]
+fn plpgsql_exceptions() {
+    assert_eq!(
+        pl(
+            "BEGIN NULL; EXCEPTION WHEN a OR b THEN NULL; WHEN SQLSTATE '22012' THEN BEGIN NULL; END; END"
+        ),
+        "(PlBlock BEGIN (PlNull NULL ;) (PlExceptionSection EXCEPTION (PlExceptionHandler WHEN a OR b THEN (PlNull NULL ;)) (PlExceptionHandler WHEN SQLSTATE (Literal '22012') THEN (PlBlock BEGIN (PlNull NULL ;) END ;))) END)"
+    );
+}
+
+#[test]
+fn plpgsql_recovers_from_errors() {
+    // `;` のない文は、次のブロックの区切りまでを Error にする
+    assert_eq!(
+        pl("BEGIN x := 1 y; IF a THEN NULL END IF; END"),
+        "(PlBlock BEGIN (PlAssign (ColumnRef x) := (Literal 1) (Error y) ;) (PlIf IF (ColumnRef a) THEN (PlNull NULL) END IF ;) END)"
+    );
+    // 対応のない ELSE は Error にして、END を探し続ける
+    assert_eq!(
+        pl("BEGIN ELSE NULL; END"),
+        "(PlBlock BEGIN (Error ELSE) (PlNull NULL ;) END)"
+    );
+    // 解釈できない文の先頭
+    assert_eq!(pl("BEGIN ); END"), "(PlBlock BEGIN (Error )) ; END)");
+    // ブロックで始まらない本体
+    assert_eq!(pl("select 1"), "(Error select 1)");
+}
+
+#[test]
+fn stop_keywords_do_not_leak() {
+    // PL/pgSQL の外では LOOP も別名にできる
+    assert_eq!(
+        stmts("SELECT a loop FROM t"),
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a) (Alias loop))) (FromClause FROM (TableRef t))))"
+    );
+}
+
+#[test]
+fn create_function_statements() {
+    assert_eq!(
+        stmts(
+            "CREATE FUNCTION f(a int, int, OUT b double precision, c text DEFAULT 'x', d int = 1) RETURNS SETOF t AS $$ SELECT 1 $$ LANGUAGE sql STABLE"
+        ),
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( (Param a (TypeName int)) , (Param (TypeName int)) , (Param OUT b (TypeName double precision)) , (Param c (TypeName text) DEFAULT (Literal 'x')) , (Param d (TypeName int) = (Literal 1)) )) (ReturnsClause RETURNS SETOF (TypeName t)) (FunctionOption AS (FunctionBody $$ (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) $$)) (FunctionOption LANGUAGE sql) (FunctionOption STABLE))"
+    );
+    // LANGUAGE が本体の後ろにあっても PL/pgSQL として解析する
+    assert_eq!(
+        stmts("CREATE OR REPLACE PROCEDURE p() AS $x$ BEGIN END $x$ LANGUAGE plpgsql"),
+        "(CreateFunctionStmt CREATE OR REPLACE PROCEDURE p (ParamList ( )) (FunctionOption AS (FunctionBody $x$ (PlBlock BEGIN END) $x$)) (FunctionOption LANGUAGE plpgsql))"
+    );
+    assert_eq!(
+        stmts(
+            "CREATE FUNCTION f() RETURNS TABLE (a int, b text) RETURNS NULL ON NULL INPUT SECURITY DEFINER SET search_path = public, pg_temp NOT LEAKPROOF PARALLEL SAFE COST 10 LANGUAGE sql BEGIN ATOMIC SELECT 1; SELECT 2; END"
+        ),
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS TABLE (ParamList ( (Param a (TypeName int)) , (Param b (TypeName text)) ))) (FunctionOption RETURNS NULL ON NULL INPUT) (FunctionOption SECURITY DEFINER) (FunctionOption SET search_path = public , pg_temp) (FunctionOption NOT LEAKPROOF) (FunctionOption PARALLEL SAFE) (FunctionOption COST 10) (FunctionOption LANGUAGE sql) (AtomicBody BEGIN ATOMIC (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 2))))) ; END))"
+    );
+    // 型だけの引数（DEFAULT 付き・2 語の型）
+    assert_eq!(
+        stmts(
+            "CREATE FUNCTION f(int DEFAULT 1, double precision) RETURNS int LANGUAGE 'plpgsql' AS $$BEGIN END$$"
+        ),
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( (Param (TypeName int) DEFAULT (Literal 1)) , (Param (TypeName double precision)) )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption LANGUAGE 'plpgsql') (FunctionOption AS (FunctionBody $$ (PlBlock BEGIN END) $$)))"
+    );
+    // LANGUAGE がなければ SQL として解析する。LANGUAGE は文の終わりまでしか探さない
+    assert_eq!(
+        stmts("CREATE FUNCTION f() RETURNS int AS $$ BEGIN $$; DO LANGUAGE plpgsql $$BEGIN END$$"),
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS (FunctionBody $$ (RawStatement BEGIN) $$))) ; (DoStmt DO LANGUAGE plpgsql (FunctionBody $$ (PlBlock BEGIN END) $$))"
+    );
+    // ほかの言語の本体や、引用符の本体はそのまま
+    assert_eq!(
+        stmts("CREATE FUNCTION f() RETURNS int AS $$ return 1 $$ LANGUAGE plpython3u"),
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS $$ return 1 $$) (FunctionOption LANGUAGE plpython3u))"
+    );
+    assert_eq!(
+        stmts("CREATE FUNCTION f() RETURNS int AS 'lib', 'sym' LANGUAGE C"),
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS 'lib' , 'sym') (FunctionOption LANGUAGE C))"
+    );
+}
+
+#[test]
+fn do_and_call_statements() {
+    assert_eq!(
+        stmts("DO LANGUAGE plpgsql $$BEGIN END$$; DO $$ x $$ LANGUAGE plperl; CALL s.p(1, a => 2)"),
+        "(DoStmt DO LANGUAGE plpgsql (FunctionBody $$ (PlBlock BEGIN END) $$)) ; (DoStmt DO $$ x $$ LANGUAGE plperl) ; (CallStmt CALL (FuncCall s . p (ArgList ( (Literal 1) , (BinaryExpr (ColumnRef a) => (Literal 2)) ))))"
+    );
+    // 閉じていない本体は解析しない
+    assert_eq!(stmts("DO $$ BEGIN"), "(DoStmt DO $$ BEGIN)");
+}

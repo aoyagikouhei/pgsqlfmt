@@ -32,6 +32,8 @@ pub enum TokenKind {
     DollarString {
         terminated: bool,
     },
+    /// 中身を解析したドル引用符の `$tag$`。字句解析器は出さず、パーサーが `DollarString` を分けて作る
+    DollarDelimiter,
     Number,
     /// `$1` などの位置パラメーター
     Param,
@@ -87,6 +89,15 @@ pub struct Token<'a> {
     pub text: &'a str,
     /// 入力先頭からのバイト位置
     pub offset: usize,
+}
+
+/// `src` の一部を字句解析する。トークンの位置は `base` を足した、元の入力での位置になる。
+pub fn tokenize_with_offset(src: &str, base: usize) -> Vec<Token<'_>> {
+    let mut tokens = tokenize(src);
+    for token in &mut tokens {
+        token.offset += base;
+    }
+    tokens
 }
 
 pub fn tokenize(src: &str) -> Vec<Token<'_>> {

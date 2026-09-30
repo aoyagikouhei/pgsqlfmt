@@ -75,6 +75,11 @@ impl Parser<'_> {
         self.expr_bp(0)
     }
 
+    /// 比較・論理演算・IN などを含まない式（`FOREACH x SLICE 1 IN ARRAY ...` の `1` など）
+    pub(super) fn expr_without_in(&mut self) -> bool {
+        self.expr_bp(BP_B_EXPR)
+    }
+
     /// UPDATE の `SET` の左辺（`col` / `col[1]` / `col.field`）。`=` の手前で止まる。
     pub(super) fn set_target(&mut self) -> bool {
         self.expr_bp(BP_COMPARISON + 1)
@@ -675,6 +680,11 @@ impl Parser<'_> {
             self.bump();
             self.eat(TokenKind::Number);
             self.expect_closing(TokenKind::RBracket);
+        }
+        // PL/pgSQL の `tbl.col%TYPE` / `tbl%ROWTYPE`
+        if self.at_op("%") && (self.nth_kw(1, "type") || self.nth_kw(1, "rowtype")) {
+            self.bump();
+            self.bump();
         }
         self.finish_node();
     }

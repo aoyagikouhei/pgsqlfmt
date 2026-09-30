@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use sql_formatter::format;
-use sql_formatter::lexer::{TokenKind, tokenize};
+use sql_formatter::lexer::{Token, TokenKind, tokenize};
 
 fn fixtures() -> Vec<String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -35,9 +35,32 @@ fn variants(src: &str) -> Vec<String> {
     out
 }
 
+/// トークン列。閉じたドル引用符（関数本体など、整形で中身が変わるもの）は、区切りと中身のトークンに展開する。
+fn expanded_tokens(src: &str) -> Vec<Token<'_>> {
+    let mut out = Vec::new();
+    for token in tokenize(src) {
+        if token.kind != (TokenKind::DollarString { terminated: true }) {
+            out.push(token);
+            continue;
+        }
+        let text = token.text;
+        let delimiter_len = text[1..].find('$').unwrap() + 2;
+        let close_start = text.len() - delimiter_len;
+        let delimiter = |text| Token {
+            kind: TokenKind::DollarDelimiter,
+            text,
+            offset: 0,
+        };
+        out.push(delimiter(&text[..delimiter_len]));
+        out.extend(expanded_tokens(&text[delimiter_len..close_start]));
+        out.push(delimiter(&text[close_start..]));
+    }
+    out
+}
+
 /// 空白・コメント以外のトークン。識別子は大文字小文字を区別しない。
 fn significant(src: &str) -> Vec<(TokenKind, String)> {
-    tokenize(src)
+    expanded_tokens(src)
         .into_iter()
         .filter(|t| !t.kind.is_trivia())
         .map(|t| {
@@ -52,7 +75,7 @@ fn significant(src: &str) -> Vec<(TokenKind, String)> {
 }
 
 fn comments(src: &str) -> Vec<String> {
-    tokenize(src)
+    expanded_tokens(src)
         .into_iter()
         .filter(|t| t.kind.is_trivia() && t.kind != TokenKind::Whitespace)
         .map(|t| t.text.to_string())

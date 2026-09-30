@@ -17,7 +17,12 @@ docker compose run --rm -T dev cargo run -q < query.sql
 - 副問い合わせと CASE は複数行にする
 - キーワードは大文字にする。識別子・関数名・型名は入力のまま
 - コメントと、文やコメントの前後の空行は残す
-- 対応していない文（CREATE など）や解釈できない部分は、元のテキストのまま出す
+- `CREATE FUNCTION` / `CREATE PROCEDURE` は RETURNS・LANGUAGE・AS などのオプションを 1 行ずつにする
+- 関数本体と `DO` の本体は、`LANGUAGE plpgsql` なら PL/pgSQL、`LANGUAGE sql` なら SQL として中身も整形する
+  （`BEGIN ATOMIC ... END` も整形する。ほかの言語の本体はそのまま）
+- PL/pgSQL は DECLARE / BEGIN / EXCEPTION / END をブロックの深さに置き、文を 1 段深くする。
+  IF / CASE / LOOP / WHILE / FOR / FOREACH の中はさらに 1 段深くする
+- 対応していない文（CREATE TABLE など）や解釈できない部分は、元のテキストのまま出す
 
 
 ローカルに Rust を入れず、Docker だけで開発します。必要なのは Docker と Docker Compose です。

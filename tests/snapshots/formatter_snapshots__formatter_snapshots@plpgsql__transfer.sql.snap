@@ -1,0 +1,90 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/plpgsql/transfer.sql
+---
+CREATE OR REPLACE FUNCTION public.transfer(p_from bigint, p_to bigint, p_amount numeric(12, 2) DEFAULT 0, OUT o_balance numeric)
+RETURNS numeric
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $body$
+<<main>>
+DECLARE
+    v_balance accounts.balance%type;
+    v_row accounts%rowtype;
+    c_log CURSOR (p_id bigint) FOR
+        SELECT *
+        FROM logs
+        WHERE account_id = p_id
+        ORDER BY id;
+    k CONSTANT int := 10;
+    v_ids bigint[] DEFAULT '{}';
+BEGIN
+    -- 残高の確認
+    SELECT balance
+    INTO STRICT v_balance
+    FROM accounts
+    WHERE id = p_from
+    FOR UPDATE;
+    IF v_balance < p_amount THEN
+        RAISE EXCEPTION 'insufficient balance: % < %', v_balance, p_amount USING ERRCODE = 'P0001', HINT = 'check';
+    ELSIF p_amount = 0 THEN
+        RETURN 0;
+    ELSE
+        UPDATE accounts
+        SET balance = balance - p_amount
+        WHERE id = p_from
+        RETURNING balance
+        INTO o_balance;
+    END IF;
+
+    CASE p_amount
+        WHEN 1, 2 THEN
+            v_balance := 1;
+        ELSE
+            NULL;
+    END CASE;
+
+    FOR r IN
+        SELECT
+            id
+          , name
+        FROM users
+        WHERE active
+    LOOP
+        CONTINUE WHEN r.id = 0;
+        PERFORM notify_user(r.id);
+    END LOOP;
+    FOR i IN REVERSE 10..1 BY 2 LOOP
+        EXIT main WHEN i < 3;
+    END LOOP;
+    FOREACH v_id SLICE 1 IN ARRAY v_ids LOOP
+        v_balance = v_balance + 1;
+    END LOOP;
+    WHILE v_balance > 0 LOOP
+        v_balance := v_balance - k;
+    END LOOP;
+    LOOP
+        EXIT;
+    END LOOP;
+
+    EXECUTE format('select count(*) from %I', 'logs') INTO v_balance USING p_from;
+    GET DIAGNOSTICS k = ROW_COUNT;
+    OPEN c_log(p_from);
+    FETCH NEXT FROM c_log INTO v_row;
+    CLOSE c_log;
+    create temp table tmp (id int) on commit drop;
+    ASSERT v_balance >= 0, 'negative';
+    RETURN QUERY
+        SELECT 1;
+    RETURN NEXT;
+EXCEPTION
+    WHEN division_by_zero OR unique_violation THEN
+        RAISE NOTICE 'error: %', sqlerrm;
+    WHEN SQLSTATE '22012' THEN
+        BEGIN
+            ROLLBACK;
+        END;
+END main;
+$body$;

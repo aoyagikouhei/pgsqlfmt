@@ -18,7 +18,7 @@ impl<'a> Formatter<'a> {
     }
 
     /// 問い合わせを構成する句（WITH・本体・集合演算・ORDER BY・LIMIT など）
-    fn query_part(&mut self, node: &Node<'a>, base: usize) {
+    pub(super) fn query_part(&mut self, node: &Node<'a>, base: usize) {
         match node.kind {
             NodeKind::WithClause => self.with_clause(node, base),
             NodeKind::SimpleSelect => {
@@ -202,6 +202,10 @@ impl<'a> Formatter<'a> {
                     self.w.newline(base);
                     self.list_clause(n, base);
                 }
+                Some((n, NodeKind::IntoClause)) => {
+                    self.w.newline(base);
+                    self.node(n);
+                }
                 _ => self.element(element),
             }
         }
@@ -246,6 +250,7 @@ impl<'a> Formatter<'a> {
                             | NodeKind::UsingClause
                             | NodeKind::WhereClause
                             | NodeKind::ReturningClause
+                            | NodeKind::IntoClause
                     ) =>
                 {
                     self.w.newline(base);

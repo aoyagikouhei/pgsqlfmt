@@ -1,0 +1,109 @@
+---
+source: tests/parser_snapshots.rs
+expression: debug_tree(path)
+input_file: tests/fixtures/plpgsql/routines.sql
+---
+Root
+  CreateFunctionStmt
+    Keyword "create"
+    Keyword "function"
+    Ident "add"
+    ParamList
+      LParen "("
+      Param
+        Ident "a"
+        TypeName
+          Ident "int"
+      Comma ","
+      Param
+        Ident "b"
+        TypeName
+          Ident "int"
+      RParen ")"
+    ReturnsClause
+      Keyword "returns"
+      TypeName
+        Ident "int"
+    FunctionOption
+      Keyword "language"
+      Ident "sql"
+    FunctionOption
+      Keyword "immutable"
+    FunctionOption
+      Keyword "strict"
+    FunctionOption
+      Keyword "as"
+      FunctionBody
+        DollarDelimiter "$$"
+        SelectStmt
+          SimpleSelect
+            SelectClause
+              Keyword "select"
+              TargetItem
+                BinaryExpr
+                  ColumnRef
+                    Ident "a"
+                  Operator "+"
+                  ColumnRef
+                    Ident "b"
+        DollarDelimiter "$$"
+  Semicolon ";"
+  CreateFunctionStmt
+    Keyword "create"
+    Keyword "procedure"
+    Ident "p"
+    ParamList
+      LParen "("
+      RParen ")"
+    AtomicBody
+      Keyword "begin"
+      Keyword "atomic"
+      InsertStmt
+        Keyword "insert"
+        Keyword "into"
+        TableRef
+          Ident "t"
+        SelectStmt
+          ValuesClause
+            Keyword "values"
+            ExprList
+              LParen "("
+              Literal
+                Number "1"
+              RParen ")"
+      Semicolon ";"
+      SelectStmt
+        SimpleSelect
+          SelectClause
+            Keyword "select"
+            TargetItem
+              Literal
+                Number "1"
+      Semicolon ";"
+      Keyword "end"
+  Semicolon ";"
+  DoStmt
+    Keyword "do"
+    FunctionBody
+      DollarDelimiter "$$"
+      PlBlock
+        Keyword "begin"
+        PlPerform
+          SimpleSelect
+            SelectClause
+              Keyword "perform"
+              TargetItem
+                Literal
+                  Number "1"
+          Semicolon ";"
+        Keyword "end"
+      DollarDelimiter "$$"
+  Semicolon ";"
+  CallStmt
+    Keyword "call"
+    FuncCall
+      Ident "p"
+      ArgList
+        LParen "("
+        RParen ")"
+  Semicolon ";"
