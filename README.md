@@ -32,3 +32,5 @@ make down      # 停止
 - 単体テストは各モジュール内（`src/lexer.rs` など）に置いています。
 - スナップショットテストは `tests/fixtures/<対象>/*.sql` を入力にし、結果を `tests/snapshots/` に保存します。
   ケースを増やすときは `.sql` を追加し、`make snapshot-review` で内容を確認してから承認します。
+- `tests/parser_robustness.rs` は、すべてのフィクスチャを途中で切ったものとトークンを 1 つ抜いたものを構文解析し、
+  止まらずに元のテキストを保つことを確かめます。

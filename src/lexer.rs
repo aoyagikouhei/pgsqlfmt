@@ -53,6 +53,16 @@ pub enum TokenKind {
     Unknown,
 }
 
+impl TokenKind {
+    /// 空白・コメント。構文上の意味を持たない
+    pub fn is_trivia(self) -> bool {
+        matches!(
+            self,
+            TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment { .. }
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StringPrefix {
     /// `'...'`

@@ -1,4 +1,6 @@
 pub mod lexer;
+pub mod parser;
+pub mod syntax;
 
 /// PostgreSQL の SQL / ストアドプロシージャを整形する。
 ///

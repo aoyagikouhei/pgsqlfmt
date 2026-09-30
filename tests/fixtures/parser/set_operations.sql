@@ -1,0 +1,10 @@
+SELECT id FROM a
+UNION ALL
+SELECT id FROM b
+INTERSECT
+(SELECT id FROM c ORDER BY id LIMIT 5)
+ORDER BY id;
+
+VALUES (1, 'one'), (2, DEFAULT);
+
+TABLE only_this;

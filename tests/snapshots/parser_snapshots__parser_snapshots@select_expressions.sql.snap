@@ -1,0 +1,203 @@
+---
+source: tests/parser_snapshots.rs
+expression: tree.debug_tree()
+input_file: tests/fixtures/parser/select_expressions.sql
+---
+Root
+  SelectStmt
+    SimpleSelect
+      SelectClause
+        Ident "SELECT"
+        TargetItem
+          BinaryExpr
+            BinaryExpr
+              CastExpr
+                ColumnRef
+                  Ident "a"
+                  Dot "."
+                  Ident "id"
+                DoubleColon "::"
+                TypeName
+                  Ident "text"
+              Operator "||"
+              Literal
+                String "'-'"
+            Operator "||"
+            FuncCall
+              Ident "coalesce"
+              ArgList
+                LParen "("
+                ColumnRef
+                  Ident "a"
+                  Dot "."
+                  Ident "code"
+                Comma ","
+                Literal
+                  String "'n/a'"
+                RParen ")"
+          Alias
+            Ident "AS"
+            Ident "label"
+        Comma ","
+        TargetItem
+          CastExpr
+            ParenExpr
+              LParen "("
+              BinaryExpr
+                BinaryExpr
+                  ColumnRef
+                    Ident "a"
+                    Dot "."
+                    Ident "payload"
+                  Operator "->"
+                  Literal
+                    String "'items'"
+                Operator "->>"
+                Literal
+                  Number "0"
+              RParen ")"
+            DoubleColon "::"
+            TypeName
+              Ident "int"
+          Alias
+            Ident "AS"
+            Ident "first_item"
+        Comma ","
+        TargetItem
+          SubscriptExpr
+            ColumnRef
+              Ident "a"
+              Dot "."
+              Ident "tags"
+            LBracket "["
+            Literal
+              Number "1"
+            Colon ":"
+            Literal
+              Number "2"
+            RBracket "]"
+        Comma ","
+        TargetItem
+          AtTimeZoneExpr
+            ColumnRef
+              Ident "a"
+              Dot "."
+              Ident "created_at"
+            Ident "AT"
+            Ident "TIME"
+            Ident "ZONE"
+            Literal
+              String "'Asia/Tokyo'"
+        Comma ","
+        TargetItem
+          BinaryExpr
+            CastCall
+              Ident "CAST"
+              LParen "("
+              ColumnRef
+                Ident "a"
+                Dot "."
+                Ident "price"
+              Ident "AS"
+              TypeName
+                Ident "numeric"
+                LParen "("
+                Number "10"
+                Comma ","
+                Number "2"
+                RParen ")"
+              RParen ")"
+            Operator "*"
+            Literal
+              Number "1.1"
+        Comma ","
+        TargetItem
+          FuncCall
+            Ident "extract"
+            ArgList
+              LParen "("
+              ColumnRef
+                Ident "year"
+              Ident "FROM"
+              ColumnRef
+                Ident "a"
+                Dot "."
+                Ident "created_at"
+              RParen ")"
+        Comma ","
+        TargetItem
+          LikeExpr
+            ColumnRef
+              Ident "a"
+              Dot "."
+              Ident "name"
+            Ident "ILIKE"
+            Literal
+              String "'%foo%'"
+            Ident "ESCAPE"
+            Literal
+              String "'\\'"
+        Comma ","
+        TargetItem
+          BetweenExpr
+            ColumnRef
+              Ident "a"
+              Dot "."
+              Ident "score"
+            Ident "BETWEEN"
+            Literal
+              Number "1"
+            Ident "AND"
+            Literal
+              Number "10"
+        Comma ","
+        TargetItem
+          IsExpr
+            ColumnRef
+              Ident "a"
+              Dot "."
+              Ident "deleted_at"
+            Ident "IS"
+            Ident "NULL"
+        Comma ","
+        TargetItem
+          BinaryExpr
+            ArrayExpr
+              Ident "ARRAY"
+              LBracket "["
+              Literal
+                Number "1"
+              Comma ","
+              Literal
+                Number "2"
+              Comma ","
+              Literal
+                Number "3"
+              RBracket "]"
+            Operator "&&"
+            ColumnRef
+              Ident "a"
+              Dot "."
+              Ident "ids"
+        Comma ","
+        TargetItem
+          BinaryExpr
+            ParamRef
+              Param "$1"
+            Operator "="
+            FuncCall
+              Ident "ANY"
+              ArgList
+                LParen "("
+                ColumnRef
+                  Ident "a"
+                  Dot "."
+                  Ident "ids"
+                RParen ")"
+      FromClause
+        Ident "FROM"
+        TableRef
+          Ident "accounts"
+          Alias
+            Ident "a"
+  Semicolon ";"

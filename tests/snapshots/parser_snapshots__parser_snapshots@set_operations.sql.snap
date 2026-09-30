@@ -1,0 +1,89 @@
+---
+source: tests/parser_snapshots.rs
+expression: tree.debug_tree()
+input_file: tests/fixtures/parser/set_operations.sql
+---
+Root
+  SelectStmt
+    SetOperation
+      SimpleSelect
+        SelectClause
+          Ident "SELECT"
+          TargetItem
+            ColumnRef
+              Ident "id"
+        FromClause
+          Ident "FROM"
+          TableRef
+            Ident "a"
+      Ident "UNION"
+      Ident "ALL"
+      SetOperation
+        SimpleSelect
+          SelectClause
+            Ident "SELECT"
+            TargetItem
+              ColumnRef
+                Ident "id"
+          FromClause
+            Ident "FROM"
+            TableRef
+              Ident "b"
+        Ident "INTERSECT"
+        ParenSelect
+          LParen "("
+          SelectStmt
+            SimpleSelect
+              SelectClause
+                Ident "SELECT"
+                TargetItem
+                  ColumnRef
+                    Ident "id"
+              FromClause
+                Ident "FROM"
+                TableRef
+                  Ident "c"
+            OrderByClause
+              Ident "ORDER"
+              Ident "BY"
+              SortItem
+                ColumnRef
+                  Ident "id"
+            LimitClause
+              Ident "LIMIT"
+              Literal
+                Number "5"
+          RParen ")"
+    OrderByClause
+      Ident "ORDER"
+      Ident "BY"
+      SortItem
+        ColumnRef
+          Ident "id"
+  Semicolon ";"
+  SelectStmt
+    ValuesClause
+      Ident "VALUES"
+      ExprList
+        LParen "("
+        Literal
+          Number "1"
+        Comma ","
+        Literal
+          String "'one'"
+        RParen ")"
+      Comma ","
+      ExprList
+        LParen "("
+        Literal
+          Number "2"
+        Comma ","
+        Literal
+          Ident "DEFAULT"
+        RParen ")"
+  Semicolon ";"
+  SelectStmt
+    TableClause
+      Ident "TABLE"
+      Ident "only_this"
+  Semicolon ";"

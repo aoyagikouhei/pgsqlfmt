@@ -1,0 +1,79 @@
+---
+source: tests/parser_snapshots.rs
+expression: tree.debug_tree()
+input_file: tests/fixtures/parser/mixed_statements.sql
+---
+Root
+  LineComment "-- 対応していない文はそのまま残る"
+  RawStatement
+    Ident "CREATE"
+    Ident "TABLE"
+    Ident "users"
+    LParen "("
+    Ident "id"
+    Ident "bigint"
+    Ident "PRIMARY"
+    Ident "KEY"
+    Comma ","
+    Ident "name"
+    Ident "text"
+    Ident "NOT"
+    Ident "NULL"
+    RParen ")"
+  Semicolon ";"
+  RawStatement
+    Ident "INSERT"
+    Ident "INTO"
+    Ident "users"
+    LParen "("
+    Ident "id"
+    Comma ","
+    Ident "name"
+    RParen ")"
+    Ident "VALUES"
+    LParen "("
+    Number "1"
+    Comma ","
+    String "'alice'"
+    RParen ")"
+  Semicolon ";"
+  SelectStmt
+    SimpleSelect
+      SelectClause
+        Ident "SELECT"
+        TargetItem
+          ColumnRef
+            Operator "*"
+      FromClause
+        Ident "FROM"
+        TableRef
+          Ident "users"
+      WhereClause
+        Ident "WHERE"
+        BinaryExpr
+          ColumnRef
+            Ident "id"
+          Operator "="
+          Literal
+            Number "1"
+  Semicolon ";"
+  SelectStmt
+    SimpleSelect
+      SelectClause
+        Ident "SELECT"
+        TargetItem
+          ColumnRef
+            Ident "a"
+        Comma ","
+        Comma ","
+        TargetItem
+          ColumnRef
+            Ident "b"
+      FromClause
+        Ident "FROM"
+        TableRef
+          Ident "t"
+      WhereClause
+        Ident "WHERE"
+  Semicolon ";"
+  LineComment "-- 壊れた文"

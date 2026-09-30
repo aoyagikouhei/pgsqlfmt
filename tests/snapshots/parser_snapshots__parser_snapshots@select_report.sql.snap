@@ -1,0 +1,300 @@
+---
+source: tests/parser_snapshots.rs
+expression: tree.debug_tree()
+input_file: tests/fixtures/parser/select_report.sql
+---
+Root
+  LineComment "-- 月別・顧客別の売上レポート"
+  SelectStmt
+    WithClause
+      Ident "WITH"
+      Cte
+        Ident "monthly"
+        Ident "AS"
+        SubqueryExpr
+          LParen "("
+          SelectStmt
+            SimpleSelect
+              SelectClause
+                Ident "SELECT"
+                TargetItem
+                  ColumnRef
+                    Ident "c"
+                    Dot "."
+                    Ident "id"
+                  Alias
+                    Ident "AS"
+                    Ident "customer_id"
+                Comma ","
+                TargetItem
+                  FuncCall
+                    Ident "date_trunc"
+                    ArgList
+                      LParen "("
+                      Literal
+                        String "'month'"
+                      Comma ","
+                      ColumnRef
+                        Ident "o"
+                        Dot "."
+                        Ident "ordered_at"
+                      RParen ")"
+                  Alias
+                    Ident "AS"
+                    Ident "month"
+                Comma ","
+                TargetItem
+                  FuncCall
+                    Ident "sum"
+                    ArgList
+                      LParen "("
+                      ColumnRef
+                        Ident "o"
+                        Dot "."
+                        Ident "amount"
+                      RParen ")"
+                    FilterClause
+                      Ident "FILTER"
+                      LParen "("
+                      WhereClause
+                        Ident "WHERE"
+                        BinaryExpr
+                          ColumnRef
+                            Ident "o"
+                            Dot "."
+                            Ident "status"
+                          Operator "<>"
+                          Literal
+                            String "'cancelled'"
+                      RParen ")"
+                  Alias
+                    Ident "AS"
+                    Ident "total"
+              FromClause
+                Ident "FROM"
+                JoinExpr
+                  TableRef
+                    Ident "customers"
+                    Alias
+                      Ident "c"
+                  Ident "JOIN"
+                  TableRef
+                    Ident "orders"
+                    Alias
+                      Ident "o"
+                  JoinCondition
+                    Ident "ON"
+                    BinaryExpr
+                      ColumnRef
+                        Ident "o"
+                        Dot "."
+                        Ident "customer_id"
+                      Operator "="
+                      ColumnRef
+                        Ident "c"
+                        Dot "."
+                        Ident "id"
+              WhereClause
+                Ident "WHERE"
+                BinaryExpr
+                  ColumnRef
+                    Ident "o"
+                    Dot "."
+                    Ident "ordered_at"
+                  Operator ">="
+                  BinaryExpr
+                    FuncCall
+                      Ident "now"
+                      ArgList
+                        LParen "("
+                        RParen ")"
+                    Operator "-"
+                    TypedLiteral
+                      Ident "interval"
+                      String "'1 year'"
+              GroupByClause
+                Ident "GROUP"
+                Ident "BY"
+                Literal
+                  Number "1"
+                Comma ","
+                Literal
+                  Number "2"
+          RParen ")"
+    SimpleSelect
+      SelectClause
+        Ident "SELECT"
+        TargetItem
+          ColumnRef
+            Ident "m"
+            Dot "."
+            Ident "customer_id"
+        Comma ","
+        TargetItem
+          ColumnRef
+            Ident "m"
+            Dot "."
+            Ident "month"
+        Comma ","
+        TargetItem
+          ColumnRef
+            Ident "m"
+            Dot "."
+            Ident "total"
+        Comma ","
+        TargetItem
+          FuncCall
+            Ident "rank"
+            ArgList
+              LParen "("
+              RParen ")"
+            OverClause
+              Ident "OVER"
+              WindowSpec
+                LParen "("
+                PartitionByClause
+                  Ident "PARTITION"
+                  Ident "BY"
+                  ColumnRef
+                    Ident "m"
+                    Dot "."
+                    Ident "month"
+                OrderByClause
+                  Ident "ORDER"
+                  Ident "BY"
+                  SortItem
+                    ColumnRef
+                      Ident "m"
+                      Dot "."
+                      Ident "total"
+                    Ident "DESC"
+                    Ident "NULLS"
+                    Ident "LAST"
+                RParen ")"
+          Alias
+            Ident "AS"
+            Ident "rnk"
+        Comma ","
+        BlockComment "/* 月内順位 */"
+        TargetItem
+          CaseExpr
+            Ident "CASE"
+            WhenClause
+              Ident "WHEN"
+              BinaryExpr
+                ColumnRef
+                  Ident "m"
+                  Dot "."
+                  Ident "total"
+                Operator ">"
+                Literal
+                  Number "10000"
+              Ident "THEN"
+              Literal
+                String "'gold'"
+            WhenClause
+              Ident "WHEN"
+              BinaryExpr
+                ColumnRef
+                  Ident "m"
+                  Dot "."
+                  Ident "total"
+                Operator ">"
+                Literal
+                  Number "1000"
+              Ident "THEN"
+              Literal
+                String "'silver'"
+            ElseClause
+              Ident "ELSE"
+              Literal
+                String "'bronze'"
+            Ident "END"
+          Alias
+            Ident "AS"
+            Ident "tier"
+      FromClause
+        Ident "FROM"
+        TableRef
+          Ident "monthly"
+          Alias
+            Ident "AS"
+            Ident "m"
+      WhereClause
+        Ident "WHERE"
+        BinaryExpr
+          InExpr
+            ColumnRef
+              Ident "m"
+              Dot "."
+              Ident "customer_id"
+            Ident "IN"
+            SubqueryExpr
+              LParen "("
+              SelectStmt
+                SimpleSelect
+                  SelectClause
+                    Ident "SELECT"
+                    TargetItem
+                      ColumnRef
+                        Ident "id"
+                  FromClause
+                    Ident "FROM"
+                    TableRef
+                      Ident "customers"
+                  WhereClause
+                    Ident "WHERE"
+                    ColumnRef
+                      Ident "active"
+              RParen ")"
+          Ident "AND"
+          PrefixExpr
+            Ident "NOT"
+            ExistsExpr
+              Ident "EXISTS"
+              SubqueryExpr
+                LParen "("
+                SelectStmt
+                  SimpleSelect
+                    SelectClause
+                      Ident "SELECT"
+                      TargetItem
+                        Literal
+                          Number "1"
+                    FromClause
+                      Ident "FROM"
+                      TableRef
+                        Ident "blacklist"
+                        Alias
+                          Ident "b"
+                    WhereClause
+                      Ident "WHERE"
+                      BinaryExpr
+                        ColumnRef
+                          Ident "b"
+                          Dot "."
+                          Ident "customer_id"
+                        Operator "="
+                        ColumnRef
+                          Ident "m"
+                          Dot "."
+                          Ident "customer_id"
+                RParen ")"
+    OrderByClause
+      Ident "ORDER"
+      Ident "BY"
+      SortItem
+        ColumnRef
+          Ident "m"
+          Dot "."
+          Ident "month"
+        Ident "DESC"
+      Comma ","
+      SortItem
+        ColumnRef
+          Ident "rnk"
+    LimitClause
+      Ident "LIMIT"
+      Literal
+        Number "100"
+  Semicolon ";"
