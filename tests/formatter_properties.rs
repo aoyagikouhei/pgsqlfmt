@@ -24,6 +24,19 @@ fn fixtures() -> Vec<String> {
     sources
 }
 
+/// すべてのフィクスチャの変形に `check` を実行する。CPU の数だけのスレッドに分けて並列に動かす。
+fn for_each_input(check: impl Fn(&str) + Sync) {
+    let inputs: Vec<String> = fixtures().iter().flat_map(|src| variants(src)).collect();
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let chunk = inputs.len().div_ceil(threads);
+    let check = &check;
+    std::thread::scope(|scope| {
+        for inputs in inputs.chunks(chunk) {
+            scope.spawn(move || inputs.iter().for_each(|input| check(input)));
+        }
+    });
+}
+
 /// 元の入力と、それを途中で切ったもの・トークンを 1 つ抜いたもの
 fn variants(src: &str) -> Vec<String> {
     let mut out = vec![src.to_string()];
@@ -84,41 +97,35 @@ fn comments(src: &str) -> Vec<String> {
 
 #[test]
 fn tokens_and_comments_are_preserved() {
-    for src in fixtures() {
-        for input in variants(&src) {
-            let output = format(&input);
-            let context = format!("\n--- 入力 ---\n{input}\n--- 出力 ---\n{output}");
-            assert_eq!(significant(&output), significant(&input), "{context}");
-            assert_eq!(comments(&output), comments(&input), "{context}");
-        }
-    }
+    for_each_input(|input| {
+        let output = format(input);
+        let context = format!("\n--- 入力 ---\n{input}\n--- 出力 ---\n{output}");
+        assert_eq!(significant(&output), significant(input), "{context}");
+        assert_eq!(comments(&output), comments(input), "{context}");
+    });
 }
 
 /// 狭い行幅でも、トークン・コメントが残り、2 回整形しても変わらない
 #[test]
 fn narrow_width_formatting_is_lossless_and_idempotent() {
     let options = FormatOptions { max_width: 20 };
-    for src in fixtures() {
-        for input in variants(&src) {
-            let once = format_with_options(&input, &options);
-            let context = format!("\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}");
-            assert_eq!(significant(&once), significant(&input), "{context}");
-            assert_eq!(comments(&once), comments(&input), "{context}");
-            assert_eq!(format_with_options(&once, &options), once, "{context}");
-        }
-    }
+    for_each_input(|input| {
+        let once = format_with_options(input, &options);
+        let context = format!("\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}");
+        assert_eq!(significant(&once), significant(input), "{context}");
+        assert_eq!(comments(&once), comments(input), "{context}");
+        assert_eq!(format_with_options(&once, &options), once, "{context}");
+    });
 }
 
 #[test]
 fn formatting_is_idempotent() {
-    for src in fixtures() {
-        for input in variants(&src) {
-            let once = format(&input);
-            let twice = format(&once);
-            assert_eq!(
-                twice, once,
-                "\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}"
-            );
-        }
-    }
+    for_each_input(|input| {
+        let once = format(input);
+        let twice = format(&once);
+        assert_eq!(
+            twice, once,
+            "\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}"
+        );
+    });
 }

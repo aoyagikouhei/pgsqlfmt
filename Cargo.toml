@@ -7,3 +7,7 @@ edition = "2024"
 
 [dev-dependencies]
 insta = { version = "1", features = ["glob"] }
+
+# テストは最適化してビルドする（性質テストで大量の入力を整形するため）。デバッグ情報は残る
+[profile.test]
+opt-level = 1

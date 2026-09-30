@@ -189,11 +189,17 @@ fn formatted_fixtures_behave_the_same_in_postgres() {
     if !postgres_available() {
         return;
     }
-    for (name, src) in fixtures(None) {
-        for max_width in [80, 20] {
-            assert_equivalent(&name, &src, max_width);
+    // フィクスチャごとに別のトランザクション（別の接続）なので、並列に流す
+    let fixtures = fixtures(None);
+    std::thread::scope(|scope| {
+        for (name, src) in &fixtures {
+            scope.spawn(move || {
+                for max_width in [80, 20] {
+                    assert_equivalent(name, src, max_width);
+                }
+            });
         }
-    }
+    });
 }
 
 /// 検証用のフィクスチャは、整形前の SQL がすべて成功すること（比べる対象が空にならないように）
