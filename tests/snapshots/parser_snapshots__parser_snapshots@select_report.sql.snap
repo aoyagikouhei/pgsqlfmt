@@ -7,23 +7,23 @@ Root
   LineComment "-- 月別・顧客別の売上レポート"
   SelectStmt
     WithClause
-      Ident "WITH"
+      Keyword "WITH"
       Cte
         Ident "monthly"
-        Ident "AS"
+        Keyword "AS"
         SubqueryExpr
           LParen "("
           SelectStmt
             SimpleSelect
               SelectClause
-                Ident "SELECT"
+                Keyword "SELECT"
                 TargetItem
                   ColumnRef
                     Ident "c"
                     Dot "."
                     Ident "id"
                   Alias
-                    Ident "AS"
+                    Keyword "AS"
                     Ident "customer_id"
                 Comma ","
                 TargetItem
@@ -40,7 +40,7 @@ Root
                         Ident "ordered_at"
                       RParen ")"
                   Alias
-                    Ident "AS"
+                    Keyword "AS"
                     Ident "month"
                 Comma ","
                 TargetItem
@@ -54,10 +54,10 @@ Root
                         Ident "amount"
                       RParen ")"
                     FilterClause
-                      Ident "FILTER"
+                      Keyword "FILTER"
                       LParen "("
                       WhereClause
-                        Ident "WHERE"
+                        Keyword "WHERE"
                         BinaryExpr
                           ColumnRef
                             Ident "o"
@@ -68,22 +68,22 @@ Root
                             String "'cancelled'"
                       RParen ")"
                   Alias
-                    Ident "AS"
+                    Keyword "AS"
                     Ident "total"
               FromClause
-                Ident "FROM"
+                Keyword "FROM"
                 JoinExpr
                   TableRef
                     Ident "customers"
                     Alias
                       Ident "c"
-                  Ident "JOIN"
+                  Keyword "JOIN"
                   TableRef
                     Ident "orders"
                     Alias
                       Ident "o"
                   JoinCondition
-                    Ident "ON"
+                    Keyword "ON"
                     BinaryExpr
                       ColumnRef
                         Ident "o"
@@ -95,7 +95,7 @@ Root
                         Dot "."
                         Ident "id"
               WhereClause
-                Ident "WHERE"
+                Keyword "WHERE"
                 BinaryExpr
                   ColumnRef
                     Ident "o"
@@ -113,8 +113,8 @@ Root
                       Ident "interval"
                       String "'1 year'"
               GroupByClause
-                Ident "GROUP"
-                Ident "BY"
+                Keyword "GROUP"
+                Keyword "BY"
                 Literal
                   Number "1"
                 Comma ","
@@ -123,7 +123,7 @@ Root
           RParen ")"
     SimpleSelect
       SelectClause
-        Ident "SELECT"
+        Keyword "SELECT"
         TargetItem
           ColumnRef
             Ident "m"
@@ -149,38 +149,38 @@ Root
               LParen "("
               RParen ")"
             OverClause
-              Ident "OVER"
+              Keyword "OVER"
               WindowSpec
                 LParen "("
                 PartitionByClause
-                  Ident "PARTITION"
-                  Ident "BY"
+                  Keyword "PARTITION"
+                  Keyword "BY"
                   ColumnRef
                     Ident "m"
                     Dot "."
                     Ident "month"
                 OrderByClause
-                  Ident "ORDER"
-                  Ident "BY"
+                  Keyword "ORDER"
+                  Keyword "BY"
                   SortItem
                     ColumnRef
                       Ident "m"
                       Dot "."
                       Ident "total"
-                    Ident "DESC"
-                    Ident "NULLS"
-                    Ident "LAST"
+                    Keyword "DESC"
+                    Keyword "NULLS"
+                    Keyword "LAST"
                 RParen ")"
           Alias
-            Ident "AS"
+            Keyword "AS"
             Ident "rnk"
         Comma ","
         BlockComment "/* 月内順位 */"
         TargetItem
           CaseExpr
-            Ident "CASE"
+            Keyword "CASE"
             WhenClause
-              Ident "WHEN"
+              Keyword "WHEN"
               BinaryExpr
                 ColumnRef
                   Ident "m"
@@ -189,11 +189,11 @@ Root
                 Operator ">"
                 Literal
                   Number "10000"
-              Ident "THEN"
+              Keyword "THEN"
               Literal
                 String "'gold'"
             WhenClause
-              Ident "WHEN"
+              Keyword "WHEN"
               BinaryExpr
                 ColumnRef
                   Ident "m"
@@ -202,73 +202,73 @@ Root
                 Operator ">"
                 Literal
                   Number "1000"
-              Ident "THEN"
+              Keyword "THEN"
               Literal
                 String "'silver'"
             ElseClause
-              Ident "ELSE"
+              Keyword "ELSE"
               Literal
                 String "'bronze'"
-            Ident "END"
+            Keyword "END"
           Alias
-            Ident "AS"
+            Keyword "AS"
             Ident "tier"
       FromClause
-        Ident "FROM"
+        Keyword "FROM"
         TableRef
           Ident "monthly"
           Alias
-            Ident "AS"
+            Keyword "AS"
             Ident "m"
       WhereClause
-        Ident "WHERE"
+        Keyword "WHERE"
         BinaryExpr
           InExpr
             ColumnRef
               Ident "m"
               Dot "."
               Ident "customer_id"
-            Ident "IN"
+            Keyword "IN"
             SubqueryExpr
               LParen "("
               SelectStmt
                 SimpleSelect
                   SelectClause
-                    Ident "SELECT"
+                    Keyword "SELECT"
                     TargetItem
                       ColumnRef
                         Ident "id"
                   FromClause
-                    Ident "FROM"
+                    Keyword "FROM"
                     TableRef
                       Ident "customers"
                   WhereClause
-                    Ident "WHERE"
+                    Keyword "WHERE"
                     ColumnRef
                       Ident "active"
               RParen ")"
-          Ident "AND"
+          Keyword "AND"
           PrefixExpr
-            Ident "NOT"
+            Keyword "NOT"
             ExistsExpr
-              Ident "EXISTS"
+              Keyword "EXISTS"
               SubqueryExpr
                 LParen "("
                 SelectStmt
                   SimpleSelect
                     SelectClause
-                      Ident "SELECT"
+                      Keyword "SELECT"
                       TargetItem
                         Literal
                           Number "1"
                     FromClause
-                      Ident "FROM"
+                      Keyword "FROM"
                       TableRef
                         Ident "blacklist"
                         Alias
                           Ident "b"
                     WhereClause
-                      Ident "WHERE"
+                      Keyword "WHERE"
                       BinaryExpr
                         ColumnRef
                           Ident "b"
@@ -281,20 +281,20 @@ Root
                           Ident "customer_id"
                 RParen ")"
     OrderByClause
-      Ident "ORDER"
-      Ident "BY"
+      Keyword "ORDER"
+      Keyword "BY"
       SortItem
         ColumnRef
           Ident "m"
           Dot "."
           Ident "month"
-        Ident "DESC"
+        Keyword "DESC"
       Comma ","
       SortItem
         ColumnRef
           Ident "rnk"
     LimitClause
-      Ident "LIMIT"
+      Keyword "LIMIT"
       Literal
         Number "100"
   Semicolon ";"

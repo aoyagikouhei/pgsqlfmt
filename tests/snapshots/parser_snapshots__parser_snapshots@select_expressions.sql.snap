@@ -7,7 +7,7 @@ Root
   SelectStmt
     SimpleSelect
       SelectClause
-        Ident "SELECT"
+        Keyword "SELECT"
         TargetItem
           BinaryExpr
             BinaryExpr
@@ -36,7 +36,7 @@ Root
                   String "'n/a'"
                 RParen ")"
           Alias
-            Ident "AS"
+            Keyword "AS"
             Ident "label"
         Comma ","
         TargetItem
@@ -60,7 +60,7 @@ Root
             TypeName
               Ident "int"
           Alias
-            Ident "AS"
+            Keyword "AS"
             Ident "first_item"
         Comma ","
         TargetItem
@@ -83,22 +83,22 @@ Root
               Ident "a"
               Dot "."
               Ident "created_at"
-            Ident "AT"
-            Ident "TIME"
-            Ident "ZONE"
+            Keyword "AT"
+            Keyword "TIME"
+            Keyword "ZONE"
             Literal
               String "'Asia/Tokyo'"
         Comma ","
         TargetItem
           BinaryExpr
             CastCall
-              Ident "CAST"
+              Keyword "CAST"
               LParen "("
               ColumnRef
                 Ident "a"
                 Dot "."
                 Ident "price"
-              Ident "AS"
+              Keyword "AS"
               TypeName
                 Ident "numeric"
                 LParen "("
@@ -118,7 +118,7 @@ Root
               LParen "("
               ColumnRef
                 Ident "year"
-              Ident "FROM"
+              Keyword "FROM"
               ColumnRef
                 Ident "a"
                 Dot "."
@@ -131,10 +131,10 @@ Root
               Ident "a"
               Dot "."
               Ident "name"
-            Ident "ILIKE"
+            Keyword "ILIKE"
             Literal
               String "'%foo%'"
-            Ident "ESCAPE"
+            Keyword "ESCAPE"
             Literal
               String "'\\'"
         Comma ","
@@ -144,10 +144,10 @@ Root
               Ident "a"
               Dot "."
               Ident "score"
-            Ident "BETWEEN"
+            Keyword "BETWEEN"
             Literal
               Number "1"
-            Ident "AND"
+            Keyword "AND"
             Literal
               Number "10"
         Comma ","
@@ -157,13 +157,13 @@ Root
               Ident "a"
               Dot "."
               Ident "deleted_at"
-            Ident "IS"
-            Ident "NULL"
+            Keyword "IS"
+            Keyword "NULL"
         Comma ","
         TargetItem
           BinaryExpr
             ArrayExpr
-              Ident "ARRAY"
+              Keyword "ARRAY"
               LBracket "["
               Literal
                 Number "1"
@@ -186,7 +186,7 @@ Root
               Param "$1"
             Operator "="
             FuncCall
-              Ident "ANY"
+              Keyword "ANY"
               ArgList
                 LParen "("
                 ColumnRef
@@ -195,7 +195,7 @@ Root
                   Ident "ids"
                 RParen ")"
       FromClause
-        Ident "FROM"
+        Keyword "FROM"
         TableRef
           Ident "accounts"
           Alias

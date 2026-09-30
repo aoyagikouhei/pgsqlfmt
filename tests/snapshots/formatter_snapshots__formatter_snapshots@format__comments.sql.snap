@@ -1,0 +1,24 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/format/comments.sql
+---
+/* ファイル先頭のブロックコメント */
+-- 行コメント
+SELECT
+    a -- a の説明
+  , b /* b の説明 */
+    -- c の前
+  , c
+FROM t1 /* 表 */
+    JOIN t2
+        ON t1.id = t2.id -- 結合条件
+WHERE -- 条件
+    x = 1
+
+    -- 空行のあとのコメント
+    AND y = 2;
+
+-- 文と文の間
+
+SELECT 1 -- 最後

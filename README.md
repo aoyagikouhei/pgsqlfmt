@@ -2,7 +2,23 @@
 
 PostgreSQL の SQL / ストアドプロシージャ（PL/pgSQL）用フォーマッター（Rust 製）。
 
-## 開発環境
+## 使い方
+
+標準入力の SQL を整形して標準出力に書き出します。
+
+```sh
+docker compose run --rm -T dev cargo run -q < query.sql
+```
+
+整形のスタイル:
+
+- 句ごとに改行し、項目が 2 つ以上なら 1 行ずつ字下げして、カンマは行頭に置く
+- WHERE / HAVING / ON の AND・OR で改行する。JOIN は FROM より 1 段、ON はさらに 1 段深くする
+- 副問い合わせと CASE は複数行にする
+- キーワードは大文字にする。識別子・関数名・型名は入力のまま
+- コメントと、文やコメントの前後の空行は残す
+- 対応していない文（CREATE など）や解釈できない部分は、元のテキストのまま出す
+
 
 ローカルに Rust を入れず、Docker だけで開発します。必要なのは Docker と Docker Compose です。
 
@@ -32,5 +48,7 @@ make down      # 停止
 - 単体テストは各モジュール内（`src/lexer.rs` など）に置いています。
 - スナップショットテストは `tests/fixtures/<対象>/*.sql` を入力にし、結果を `tests/snapshots/` に保存します。
   ケースを増やすときは `.sql` を追加し、`make snapshot-review` で内容を確認してから承認します。
+- `tests/formatter_properties.rs` は、すべてのフィクスチャとその変形について、整形でトークンやコメントが
+  欠けないことと、2 回整形しても結果が変わらないことを確かめます。
 - `tests/parser_robustness.rs` は、すべてのフィクスチャを途中で切ったものとトークンを 1 つ抜いたものを構文解析し、
   止まらずに元のテキストを保つことを確かめます。

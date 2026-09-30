@@ -17,6 +17,8 @@ pub enum TokenKind {
     },
     /// 引用符なしの識別子（キーワードを含む）
     Ident,
+    /// キーワードとして読んだ識別子。字句解析器は出さず、パーサーが `Ident` から付け替える
+    Keyword,
     /// `"..."` / `U&"..."`
     QuotedIdent {
         terminated: bool,

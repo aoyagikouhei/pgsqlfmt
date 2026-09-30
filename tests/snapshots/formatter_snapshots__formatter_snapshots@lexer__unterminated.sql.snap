@@ -1,0 +1,7 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/lexer/unterminated.sql
+---
+SELECT 'never closed
+FROM t;

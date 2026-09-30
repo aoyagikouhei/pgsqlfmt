@@ -8,62 +8,62 @@ Root
     SetOperation
       SimpleSelect
         SelectClause
-          Ident "SELECT"
+          Keyword "SELECT"
           TargetItem
             ColumnRef
               Ident "id"
         FromClause
-          Ident "FROM"
+          Keyword "FROM"
           TableRef
             Ident "a"
-      Ident "UNION"
-      Ident "ALL"
+      Keyword "UNION"
+      Keyword "ALL"
       SetOperation
         SimpleSelect
           SelectClause
-            Ident "SELECT"
+            Keyword "SELECT"
             TargetItem
               ColumnRef
                 Ident "id"
           FromClause
-            Ident "FROM"
+            Keyword "FROM"
             TableRef
               Ident "b"
-        Ident "INTERSECT"
+        Keyword "INTERSECT"
         ParenSelect
           LParen "("
           SelectStmt
             SimpleSelect
               SelectClause
-                Ident "SELECT"
+                Keyword "SELECT"
                 TargetItem
                   ColumnRef
                     Ident "id"
               FromClause
-                Ident "FROM"
+                Keyword "FROM"
                 TableRef
                   Ident "c"
             OrderByClause
-              Ident "ORDER"
-              Ident "BY"
+              Keyword "ORDER"
+              Keyword "BY"
               SortItem
                 ColumnRef
                   Ident "id"
             LimitClause
-              Ident "LIMIT"
+              Keyword "LIMIT"
               Literal
                 Number "5"
           RParen ")"
     OrderByClause
-      Ident "ORDER"
-      Ident "BY"
+      Keyword "ORDER"
+      Keyword "BY"
       SortItem
         ColumnRef
           Ident "id"
   Semicolon ";"
   SelectStmt
     ValuesClause
-      Ident "VALUES"
+      Keyword "VALUES"
       ExprList
         LParen "("
         Literal
@@ -79,11 +79,11 @@ Root
           Number "2"
         Comma ","
         Literal
-          Ident "DEFAULT"
+          Keyword "DEFAULT"
         RParen ")"
   Semicolon ";"
   SelectStmt
     TableClause
-      Ident "TABLE"
+      Keyword "TABLE"
       Ident "only_this"
   Semicolon ";"

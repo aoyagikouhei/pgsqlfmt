@@ -156,8 +156,30 @@ impl<'a> Parser<'a> {
         found
     }
 
+    /// `bump` と同じだが、識別子をキーワードとして取り込む（整形で大文字にする対象になる）
+    fn bump_kw(&mut self) {
+        self.eat_trivia();
+        assert!(self.pos < self.tokens.len(), "入力の終わりで bump した");
+        let mut token = self.tokens[self.pos];
+        if token.kind == TokenKind::Ident {
+            token.kind = TokenKind::Keyword;
+        }
+        self.pos += 1;
+        self.stack.last_mut().unwrap().1.push(Element::Token(token));
+    }
+
+    /// キーワード `kw` があればキーワードとして取り込む
     fn eat_kw(&mut self, kw: &str) -> bool {
         let found = self.at_kw(kw);
+        if found {
+            self.bump_kw();
+        }
+        found
+    }
+
+    /// `eat_kw` と同じだが、名前の一部（型名の `precision` など）として取り込む
+    fn eat_word(&mut self, word: &str) -> bool {
+        let found = self.at_kw(word);
         if found {
             self.bump();
         }

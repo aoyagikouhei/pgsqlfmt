@@ -7,16 +7,16 @@ Root
   LineComment "-- 在庫の取り込み（UPSERT）"
   InsertStmt
     WithClause
-      Ident "WITH"
+      Keyword "WITH"
       Cte
         Ident "incoming"
-        Ident "AS"
+        Keyword "AS"
         SubqueryExpr
           LParen "("
           SelectStmt
             SimpleSelect
               SelectClause
-                Ident "SELECT"
+                Keyword "SELECT"
                 TargetItem
                   ColumnRef
                     Ident "sku"
@@ -25,11 +25,11 @@ Root
                   ColumnRef
                     Ident "qty"
               FromClause
-                Ident "FROM"
+                Keyword "FROM"
                 TableRef
                   Ident "staging_stock"
               WhereClause
-                Ident "WHERE"
+                Keyword "WHERE"
                 BinaryExpr
                   ColumnRef
                     Ident "batch_id"
@@ -37,12 +37,12 @@ Root
                   ParamRef
                     Param "$1"
           RParen ")"
-    Ident "INSERT"
-    Ident "INTO"
+    Keyword "INSERT"
+    Keyword "INTO"
     TableRef
       Ident "stock"
       Alias
-        Ident "AS"
+        Keyword "AS"
         Ident "s"
     ExprList
       LParen "("
@@ -58,7 +58,7 @@ Root
     SelectStmt
       SimpleSelect
         SelectClause
-          Ident "SELECT"
+          Keyword "SELECT"
           TargetItem
             ColumnRef
               Ident "sku"
@@ -74,21 +74,21 @@ Root
                 LParen "("
                 RParen ")"
         FromClause
-          Ident "FROM"
+          Keyword "FROM"
           TableRef
             Ident "incoming"
     OnConflictClause
-      Ident "ON"
-      Ident "CONFLICT"
+      Keyword "ON"
+      Keyword "CONFLICT"
       ExprList
         LParen "("
         ColumnRef
           Ident "sku"
         RParen ")"
-      Ident "DO"
-      Ident "UPDATE"
+      Keyword "DO"
+      Keyword "UPDATE"
       SetClause
-        Ident "SET"
+        Keyword "SET"
         SetItem
           ColumnRef
             Ident "qty"
@@ -113,7 +113,7 @@ Root
             Dot "."
             Ident "updated_at"
       WhereClause
-        Ident "WHERE"
+        Keyword "WHERE"
         BinaryExpr
           ColumnRef
             Ident "s"
@@ -121,9 +121,9 @@ Root
             Ident "locked"
           Operator "="
           Literal
-            Ident "false"
+            Keyword "false"
     ReturningClause
-      Ident "RETURNING"
+      Keyword "RETURNING"
       TargetItem
         ColumnRef
           Ident "s"
@@ -137,13 +137,13 @@ Root
           Ident "qty"
   Semicolon ";"
   UpdateStmt
-    Ident "UPDATE"
+    Keyword "UPDATE"
     TableRef
       Ident "orders"
       Alias
         Ident "o"
     SetClause
-      Ident "SET"
+      Keyword "SET"
       SetItem
         ColumnRef
           Ident "status"
@@ -176,13 +176,13 @@ Root
               Ident "name"
             RParen ")"
     FromClause
-      Ident "FROM"
+      Keyword "FROM"
       TableRef
         Ident "carriers"
         Alias
           Ident "c"
     WhereClause
-      Ident "WHERE"
+      Keyword "WHERE"
       BinaryExpr
         BinaryExpr
           ColumnRef
@@ -194,7 +194,7 @@ Root
             Ident "o"
             Dot "."
             Ident "carrier_id"
-        Ident "AND"
+        Keyword "AND"
         BinaryExpr
           ColumnRef
             Ident "o"
@@ -205,7 +205,7 @@ Root
             String "'packed'"
     LineComment "-- 梱包済みのみ"
     ReturningClause
-      Ident "RETURNING"
+      Keyword "RETURNING"
       TargetItem
         ColumnRef
           Ident "o"
@@ -213,20 +213,20 @@ Root
           Ident "id"
   Semicolon ";"
   DeleteStmt
-    Ident "DELETE"
-    Ident "FROM"
+    Keyword "DELETE"
+    Keyword "FROM"
     TableRef
       Ident "sessions"
       Alias
         Ident "s"
     UsingClause
-      Ident "USING"
+      Keyword "USING"
       TableRef
         Ident "users"
         Alias
           Ident "u"
     WhereClause
-      Ident "WHERE"
+      Keyword "WHERE"
       BinaryExpr
         BinaryExpr
           ColumnRef
@@ -238,13 +238,13 @@ Root
             Ident "s"
             Dot "."
             Ident "user_id"
-        Ident "AND"
+        Keyword "AND"
         IsExpr
           ColumnRef
             Ident "u"
             Dot "."
             Ident "deleted_at"
-          Ident "IS"
-          Ident "NOT"
-          Ident "NULL"
+          Keyword "IS"
+          Keyword "NOT"
+          Keyword "NULL"
   Semicolon ";"

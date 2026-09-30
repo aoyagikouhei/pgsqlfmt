@@ -151,13 +151,13 @@ impl Parser<'_> {
     fn infix_rest(&mut self, infix: Infix, bp: u8) {
         match infix {
             Infix::Binary => {
-                self.bump();
+                self.bump_kw();
                 self.expr_bp(bp + 1);
             }
             Infix::Is => self.is_rest(),
             Infix::Between => {
                 self.eat_kw("not");
-                self.bump();
+                self.bump_kw();
                 if !self.eat_kw("symmetric") {
                     self.eat_kw("asymmetric");
                 }
@@ -168,7 +168,7 @@ impl Parser<'_> {
             }
             Infix::In => {
                 self.eat_kw("not");
-                self.bump();
+                self.bump_kw();
                 if self.at(TokenKind::LParen) {
                     if self.at_query_start(1) {
                         self.subquery_expr();
@@ -182,7 +182,7 @@ impl Parser<'_> {
                 if self.eat_kw("similar") {
                     self.eat_kw("to");
                 } else {
-                    self.bump();
+                    self.bump_kw();
                 }
                 self.expr_bp(BP_PATTERN + 1);
                 if self.eat_kw("escape") {
@@ -194,11 +194,11 @@ impl Parser<'_> {
                 self.type_name();
             }
             Infix::Collate => {
-                self.bump();
+                self.bump_kw();
                 self.name_path();
             }
             Infix::AtTimeZone => {
-                self.bump();
+                self.bump_kw();
                 if !self.eat_kw("local") {
                     self.eat_kw("time");
                     self.eat_kw("zone");
@@ -229,27 +229,27 @@ impl Parser<'_> {
         if self.eat_kw("isnull") || self.eat_kw("notnull") {
             return;
         }
-        self.bump();
+        self.bump_kw();
         self.eat_kw("not");
         if self.eat_kw("distinct") {
             self.eat_kw("from");
             self.expr_bp(BP_IS + 1);
         } else if self.at_any_kw(&["nfc", "nfd", "nfkc", "nfkd"]) {
-            self.bump();
+            self.bump_kw();
             self.eat_kw("normalized");
         } else if self.eat_kw("json") {
             if self.at_any_kw(&["value", "array", "object", "scalar"]) {
-                self.bump();
+                self.bump_kw();
             }
         } else if self.at_any_kw(&["null", "true", "false", "unknown", "normalized", "document"]) {
-            self.bump();
+            self.bump_kw();
         }
     }
 
     fn prefix_or_primary(&mut self) -> bool {
         if self.at_kw("not") {
             self.start_node(NodeKind::PrefixExpr);
-            self.bump();
+            self.bump_kw();
             self.expr_bp(BP_NOT);
             self.finish_node();
             return true;
@@ -297,7 +297,7 @@ impl Parser<'_> {
 
     fn single_token_node(&mut self, kind: NodeKind) -> bool {
         self.start_node(kind);
-        self.bump();
+        self.bump_kw();
         self.finish_node();
         true
     }
@@ -316,14 +316,14 @@ impl Parser<'_> {
             }
             "exists" if next_is(TokenKind::LParen) => {
                 self.start_node(NodeKind::ExistsExpr);
-                self.bump();
+                self.bump_kw();
                 self.subquery_expr();
                 self.finish_node();
                 true
             }
             "array" if next_is(TokenKind::LBracket) || next_is(TokenKind::LParen) => {
                 self.start_node(NodeKind::ArrayExpr);
-                self.bump();
+                self.bump_kw();
                 if self.at(TokenKind::LBracket) {
                     self.array_brackets();
                 } else {
@@ -334,17 +334,17 @@ impl Parser<'_> {
             }
             "row" if next_is(TokenKind::LParen) => {
                 self.start_node(NodeKind::RowExpr);
-                self.bump();
+                self.bump_kw();
                 self.expr_list();
                 self.finish_node();
                 true
             }
             "any" | "all" | "some" if next_is(TokenKind::LParen) => {
-                self.name_or_call();
+                self.keyword_call();
                 true
             }
             word if is_value_keyword(word) => {
-                self.name_or_call();
+                self.keyword_call();
                 true
             }
             word if is_reserved(word) => false,
@@ -352,6 +352,18 @@ impl Parser<'_> {
                 self.name_or_call();
                 true
             }
+        }
+    }
+
+    /// キーワードの値や関数（`CURRENT_TIMESTAMP` / `CURRENT_TIMESTAMP(3)` / `ANY(...)`）
+    fn keyword_call(&mut self) {
+        let cp = self.checkpoint();
+        self.bump_kw();
+        if self.at(TokenKind::LParen) {
+            self.arg_list(0);
+            self.wrap(cp, NodeKind::FuncCall);
+        } else {
+            self.wrap(cp, NodeKind::ColumnRef);
         }
     }
 
@@ -421,7 +433,7 @@ impl Parser<'_> {
             if self.at_kw("order") && self.nth_kw(1, "by") {
                 self.order_by_clause(Self::at_clause_keyword);
             } else if self.at_any_kw(ARG_KEYWORDS) || self.at(TokenKind::ColonEquals) {
-                self.bump();
+                self.bump_kw();
             } else if self.at_query_start(0) {
                 self.select_stmt();
             } else if !self.expr_bp(arg_bp) {
@@ -436,8 +448,8 @@ impl Parser<'_> {
     fn call_suffixes(&mut self) {
         if self.at_kw("within") && self.nth_kw(1, "group") {
             self.start_node(NodeKind::WithinGroupClause);
-            self.bump();
-            self.bump();
+            self.bump_kw();
+            self.bump_kw();
             if self.eat(TokenKind::LParen) {
                 if self.at_kw("order") {
                     self.order_by_clause(Self::at_clause_keyword);
@@ -448,7 +460,7 @@ impl Parser<'_> {
         }
         if self.at_kw("filter") && self.nth_is(1, TokenKind::LParen) {
             self.start_node(NodeKind::FilterClause);
-            self.bump();
+            self.bump_kw();
             self.bump();
             if self.at_kw("where") {
                 self.where_clause();
@@ -458,7 +470,7 @@ impl Parser<'_> {
         }
         if self.at_kw("over") {
             self.start_node(NodeKind::OverClause);
-            self.bump();
+            self.bump_kw();
             if self.at(TokenKind::LParen) {
                 self.window_spec();
             } else if self.at_name() {
@@ -478,7 +490,7 @@ impl Parser<'_> {
         }
         if self.at_kw("partition") {
             self.start_node(NodeKind::PartitionByClause);
-            self.bump();
+            self.bump_kw();
             self.eat_kw("by");
             self.comma_list(
                 |p| p.at_any_kw(&["order", "rows", "range", "groups"]),
@@ -576,13 +588,13 @@ impl Parser<'_> {
 
     fn case_expr(&mut self) {
         self.start_node(NodeKind::CaseExpr);
-        self.bump();
+        self.bump_kw();
         if !self.at_kw("when") {
             self.expr();
         }
         while self.at_kw("when") {
             self.start_node(NodeKind::WhenClause);
-            self.bump();
+            self.bump_kw();
             self.expr();
             if self.eat_kw("then") {
                 self.expr();
@@ -591,7 +603,7 @@ impl Parser<'_> {
         }
         if self.at_kw("else") {
             self.start_node(NodeKind::ElseClause);
-            self.bump();
+            self.bump_kw();
             self.expr();
             self.finish_node();
         }
@@ -604,7 +616,7 @@ impl Parser<'_> {
 
     fn cast_call(&mut self) {
         self.start_node(NodeKind::CastCall);
-        self.bump();
+        self.bump_kw();
         self.bump();
         self.expr();
         if self.eat_kw("as") {
@@ -625,16 +637,16 @@ impl Parser<'_> {
         self.name_path();
         match first.as_str() {
             "double" => {
-                self.eat_kw("precision");
+                self.eat_word("precision");
             }
             "national" => {
-                if !self.eat_kw("character") {
-                    self.eat_kw("char");
+                if !self.eat_word("character") {
+                    self.eat_word("char");
                 }
-                self.eat_kw("varying");
+                self.eat_word("varying");
             }
             "character" | "char" | "nchar" | "bit" => {
-                self.eat_kw("varying");
+                self.eat_word("varying");
             }
             _ => {}
         }
@@ -647,12 +659,12 @@ impl Parser<'_> {
         {
             self.bump();
             self.bump();
-            self.eat_kw("zone");
+            self.eat_word("zone");
         }
         const FIELDS: &[&str] = &["year", "month", "day", "hour", "minute", "second"];
         if first == "interval" && self.at_any_kw(FIELDS) {
             self.bump();
-            if self.eat_kw("to") && self.at_any_kw(FIELDS) {
+            if self.eat_word("to") && self.at_any_kw(FIELDS) {
                 self.bump();
             }
             if self.at(TokenKind::LParen) {

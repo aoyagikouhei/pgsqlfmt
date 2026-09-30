@@ -1,0 +1,21 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/lexer/select.sql
+---
+-- 顧客ごとの注文数
+SELECT
+    c.id
+  , c."Name"
+  , count(o.*)::bigint AS cnt
+FROM customers AS c
+    LEFT JOIN orders o
+        ON o.customer_id = c.id /* 外部結合 */
+WHERE c.tags @> ARRAY['vip']
+    AND c.created_at >= now() - interval '30 days'
+    AND c.score * -1 < 0.5e2
+GROUP BY
+    c.id
+  , c."Name"
+ORDER BY cnt DESC
+LIMIT $1;

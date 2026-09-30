@@ -639,7 +639,7 @@ Root
   SelectStmt
     SimpleSelect
       SelectClause
-        Ident \"SELECT\"
+        Keyword \"SELECT\"
         TargetItem
           ColumnRef
             Ident \"a\"

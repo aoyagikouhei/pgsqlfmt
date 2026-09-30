@@ -22,8 +22,8 @@ Root
     RParen ")"
   Semicolon ";"
   InsertStmt
-    Ident "INSERT"
-    Ident "INTO"
+    Keyword "INSERT"
+    Keyword "INTO"
     TableRef
       Ident "users"
     ExprList
@@ -36,7 +36,7 @@ Root
       RParen ")"
     SelectStmt
       ValuesClause
-        Ident "VALUES"
+        Keyword "VALUES"
         ExprList
           LParen "("
           Literal
@@ -49,16 +49,16 @@ Root
   SelectStmt
     SimpleSelect
       SelectClause
-        Ident "SELECT"
+        Keyword "SELECT"
         TargetItem
           ColumnRef
             Operator "*"
       FromClause
-        Ident "FROM"
+        Keyword "FROM"
         TableRef
           Ident "users"
       WhereClause
-        Ident "WHERE"
+        Keyword "WHERE"
         BinaryExpr
           ColumnRef
             Ident "id"
@@ -69,7 +69,7 @@ Root
   SelectStmt
     SimpleSelect
       SelectClause
-        Ident "SELECT"
+        Keyword "SELECT"
         TargetItem
           ColumnRef
             Ident "a"
@@ -79,10 +79,10 @@ Root
           ColumnRef
             Ident "b"
       FromClause
-        Ident "FROM"
+        Keyword "FROM"
         TableRef
           Ident "t"
       WhereClause
-        Ident "WHERE"
+        Keyword "WHERE"
   Semicolon ";"
   LineComment "-- 壊れた文"

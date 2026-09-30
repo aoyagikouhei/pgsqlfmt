@@ -38,14 +38,14 @@ impl Parser<'_> {
                 self.order_by_clause(Self::at_clause_keyword);
             } else if self.at_kw("limit") {
                 self.start_node(NodeKind::LimitClause);
-                self.bump();
+                self.bump_kw();
                 if !self.eat_kw("all") {
                     self.expr();
                 }
                 self.finish_node();
             } else if self.at_kw("offset") {
                 self.start_node(NodeKind::OffsetClause);
-                self.bump();
+                self.bump_kw();
                 self.expr();
                 if !self.eat_kw("rows") {
                     self.eat_kw("row");
@@ -64,7 +64,7 @@ impl Parser<'_> {
     /// 中身を細かく解釈しない句（`FETCH FIRST ...` / `FOR UPDATE ...`）。次の句の手前までを取り込む。
     fn keyword_clause(&mut self, kind: NodeKind) {
         self.start_node(kind);
-        self.bump();
+        self.bump_kw();
         while !self.at_statement_end() && !self.at(TokenKind::RParen) && !self.at_clause_keyword() {
             self.bump_balanced();
         }
@@ -87,7 +87,7 @@ impl Parser<'_> {
                 break;
             }
             self.start_node_at(cp, NodeKind::SetOperation);
-            self.bump();
+            self.bump_kw();
             if !self.eat_kw("all") {
                 self.eat_kw("distinct");
             }
@@ -101,7 +101,7 @@ impl Parser<'_> {
             self.simple_select();
         } else if self.at_kw("values") {
             self.start_node(NodeKind::ValuesClause);
-            self.bump();
+            self.bump_kw();
             self.comma_list(Self::at_clause_keyword, |p| {
                 let found = p.at(TokenKind::LParen);
                 if found {
@@ -112,7 +112,7 @@ impl Parser<'_> {
             self.finish_node();
         } else if self.at_kw("table") {
             self.start_node(NodeKind::TableClause);
-            self.bump();
+            self.bump_kw();
             self.eat_kw("only");
             self.name_path();
             self.finish_node();
@@ -130,7 +130,7 @@ impl Parser<'_> {
 
     pub(super) fn with_clause(&mut self) {
         self.start_node(NodeKind::WithClause);
-        self.bump();
+        self.bump_kw();
         self.eat_kw("recursive");
         self.comma_list(
             |p| p.at_query_start(0) || p.at_any_kw(&["insert", "update", "delete", "merge"]),
@@ -163,7 +163,7 @@ impl Parser<'_> {
         self.start_node(NodeKind::SimpleSelect);
 
         self.start_node(NodeKind::SelectClause);
-        self.bump();
+        self.bump_kw();
         if self.eat_kw("distinct") {
             if self.eat_kw("on") && self.at(TokenKind::LParen) {
                 self.expr_list();
@@ -176,7 +176,7 @@ impl Parser<'_> {
 
         if self.at_kw("into") {
             self.start_node(NodeKind::IntoClause);
-            self.bump();
+            self.bump_kw();
             if !self.eat_kw("temporary") && !self.eat_kw("temp") {
                 self.eat_kw("unlogged");
             }
@@ -192,8 +192,8 @@ impl Parser<'_> {
         }
         if self.at_kw("group") && self.nth_kw(1, "by") {
             self.start_node(NodeKind::GroupByClause);
-            self.bump();
-            self.bump();
+            self.bump_kw();
+            self.bump_kw();
             if !self.eat_kw("all") {
                 self.eat_kw("distinct");
             }
@@ -202,13 +202,13 @@ impl Parser<'_> {
         }
         if self.at_kw("having") {
             self.start_node(NodeKind::HavingClause);
-            self.bump();
+            self.bump_kw();
             self.expr();
             self.finish_node();
         }
         if self.at_kw("window") {
             self.start_node(NodeKind::WindowClause);
-            self.bump();
+            self.bump_kw();
             self.comma_list(Self::at_clause_keyword, Self::window_def);
             self.finish_node();
         }
@@ -218,7 +218,7 @@ impl Parser<'_> {
 
     pub(super) fn table_source_clause(&mut self) {
         self.start_node(NodeKind::FromClause);
-        self.bump();
+        self.bump_kw();
         self.comma_list(Self::at_clause_keyword, Self::table_expr);
         self.finish_node();
     }
@@ -272,9 +272,9 @@ impl Parser<'_> {
         while self.at_join_start() {
             self.start_node_at(cp, NodeKind::JoinExpr);
             while !self.at_kw("join") {
-                self.bump();
+                self.bump_kw();
             }
-            self.bump();
+            self.bump_kw();
             if !self.table_primary() {
                 self.error_until(|p| {
                     p.at_clause_keyword()
@@ -285,12 +285,12 @@ impl Parser<'_> {
             }
             if self.at_kw("on") {
                 self.start_node(NodeKind::JoinCondition);
-                self.bump();
+                self.bump_kw();
                 self.expr();
                 self.finish_node();
             } else if self.at_kw("using") {
                 self.start_node(NodeKind::JoinCondition);
-                self.bump();
+                self.bump_kw();
                 if self.at(TokenKind::LParen) {
                     self.expr_list();
                 }
@@ -353,8 +353,8 @@ impl Parser<'_> {
         if self.at(TokenKind::LParen) {
             self.arg_list(0);
             if self.at_kw("with") && self.nth_kw(1, "ordinality") {
-                self.bump();
-                self.bump();
+                self.bump_kw();
+                self.bump_kw();
             }
             self.opt_alias(true);
             self.wrap(cp, NodeKind::FunctionTable);
@@ -371,10 +371,10 @@ impl Parser<'_> {
     /// `WHERE expr` / `WHERE CURRENT OF cursor`
     pub(super) fn where_clause(&mut self) {
         self.start_node(NodeKind::WhereClause);
-        self.bump();
+        self.bump_kw();
         if self.at_kw("current") && self.nth_kw(1, "of") {
-            self.bump();
-            self.bump();
+            self.bump_kw();
+            self.bump_kw();
             self.name_path();
         } else {
             self.expr();
@@ -385,8 +385,8 @@ impl Parser<'_> {
     fn group_item(&mut self) -> bool {
         if self.at_kw("grouping") && self.nth_kw(1, "sets") {
             self.start_node(NodeKind::GroupingSets);
-            self.bump();
-            self.bump();
+            self.bump_kw();
+            self.bump_kw();
             if self.at(TokenKind::LParen) {
                 self.expr_list();
             }
@@ -414,7 +414,7 @@ impl Parser<'_> {
     /// `ORDER BY item, ...`。`is_end` は並びの終わり（窓関数では `ROWS` なども終わりになる）。
     pub(super) fn order_by_clause(&mut self, is_end: fn(&Self) -> bool) {
         self.start_node(NodeKind::OrderByClause);
-        self.bump();
+        self.bump_kw();
         self.eat_kw("by");
         self.comma_list(is_end, Self::sort_item);
         self.finish_node();

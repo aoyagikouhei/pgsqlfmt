@@ -35,7 +35,7 @@ impl Parser<'_> {
     /// `INSERT INTO table [AS alias] [(col, ...)] [OVERRIDING ... VALUE]
     ///  {DEFAULT VALUES | query} [ON CONFLICT ...] [RETURNING ...]`
     fn insert_rest(&mut self) {
-        self.bump();
+        self.bump_kw();
         self.eat_kw("into");
         if self.at_name() {
             let cp = self.checkpoint();
@@ -56,8 +56,8 @@ impl Parser<'_> {
             self.eat_kw("value");
         }
         if self.at_kw("default") && self.nth_kw(1, "values") {
-            self.bump();
-            self.bump();
+            self.bump_kw();
+            self.bump_kw();
         } else if self.at_query_start(0) {
             self.select_stmt();
         }
@@ -73,16 +73,16 @@ impl Parser<'_> {
     ///  DO {NOTHING | UPDATE SET ... [WHERE ...]}`
     fn on_conflict_clause(&mut self) {
         self.start_node(NodeKind::OnConflictClause);
-        self.bump();
-        self.bump();
+        self.bump_kw();
+        self.bump_kw();
         if self.at(TokenKind::LParen) {
             self.expr_list();
             if self.at_kw("where") {
                 self.where_clause();
             }
         } else if self.at_kw("on") && self.nth_kw(1, "constraint") {
-            self.bump();
-            self.bump();
+            self.bump_kw();
+            self.bump_kw();
             self.name_path();
         }
         if self.eat_kw("do") && !self.eat_kw("nothing") && self.eat_kw("update") {
@@ -98,7 +98,7 @@ impl Parser<'_> {
 
     /// `UPDATE [ONLY] table [*] [[AS] alias] SET ... [FROM ...] [WHERE ...] [RETURNING ...]`
     fn update_rest(&mut self) {
-        self.bump();
+        self.bump_kw();
         self.dml_target(&["set"]);
         if self.at_kw("set") {
             self.set_clause();
@@ -116,12 +116,12 @@ impl Parser<'_> {
 
     /// `DELETE FROM [ONLY] table [*] [[AS] alias] [USING ...] [WHERE ...] [RETURNING ...]`
     fn delete_rest(&mut self) {
-        self.bump();
+        self.bump_kw();
         self.eat_kw("from");
         self.dml_target(&[]);
         if self.at_kw("using") {
             self.start_node(NodeKind::UsingClause);
-            self.bump();
+            self.bump_kw();
             self.comma_list(Self::at_clause_keyword, Self::table_expr);
             self.finish_node();
         }
@@ -151,7 +151,7 @@ impl Parser<'_> {
     /// `SET col = expr, (a, b) = (...), ...`
     fn set_clause(&mut self) {
         self.start_node(NodeKind::SetClause);
-        self.bump();
+        self.bump_kw();
         self.comma_list(Self::at_clause_keyword, Self::set_item);
         self.finish_node();
     }
@@ -174,9 +174,9 @@ impl Parser<'_> {
     /// `RETURNING [WITH (OLD AS o, NEW AS n)] item, ...`
     fn returning_clause(&mut self) {
         self.start_node(NodeKind::ReturningClause);
-        self.bump();
+        self.bump_kw();
         if self.at_kw("with") && self.nth_is(1, TokenKind::LParen) {
-            self.bump();
+            self.bump_kw();
             self.bump_balanced();
         }
         self.comma_list(Self::at_clause_keyword, Self::target_item);
