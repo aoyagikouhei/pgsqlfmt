@@ -115,6 +115,8 @@ pub(super) const CLAUSE_KEYWORDS: &[&str] = &[
     "intersect",
     "except",
     "returning",
+    // INSERT ... SELECT / VALUES の後ろの ON CONFLICT
+    "on",
 ];
 
 /// FROM 句で結合を始めるキーワード。予約語ではないが、AS なしの表の別名にはできない。

@@ -7,6 +7,7 @@
 //! 空白・コメントは、次の意味のあるトークンを取り込む時点で開いているノードに入る。
 //! ノードを開くときは先に空白・コメントを親に流すので、ノードは必ず意味のあるトークンから始まる。
 
+mod dml;
 mod expr;
 mod keywords;
 mod select;
@@ -270,9 +271,7 @@ impl<'a> Parser<'a> {
     // ---- 文 ----
 
     fn statement(&mut self) {
-        if self.at_query_start(0) {
-            self.select_stmt();
-        } else {
+        if !self.statement_body() {
             self.raw_statement();
         }
     }

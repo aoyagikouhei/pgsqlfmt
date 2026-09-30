@@ -483,10 +483,15 @@ fn with_clause() {
         ),
         "(SelectStmt (WithClause WITH RECURSIVE (Cte r (ExprList ( (ColumnRef n) )) AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ))) , (Cte m AS MATERIALIZED (SubqueryExpr ( (SelectStmt (ValuesClause VALUES (ExprList ( (Literal 1) )) , (ExprList ( (Literal 2) )))) )))) (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef n))) (FromClause FROM (TableRef r))))"
     );
-    // 問い合わせ以外の CTE 本体はそのまま保持する
+    // CTE の本体には DML も書ける
     assert_eq!(
         stmts("WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d"),
-        "(SelectStmt (WithClause WITH (Cte d AS (SubqueryExpr ( (RawStatement DELETE FROM t RETURNING *) )))) (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef *))) (FromClause FROM (TableRef d))))"
+        "(SelectStmt (WithClause WITH (Cte d AS (SubqueryExpr ( (DeleteStmt DELETE FROM (TableRef t) (ReturningClause RETURNING (TargetItem (ColumnRef *)))) )))) (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef *))) (FromClause FROM (TableRef d))))"
+    );
+    // 対応していない文の CTE 本体はそのまま保持する
+    assert_eq!(
+        stmts("WITH m AS (MERGE INTO t USING s ON true DO NOTHING) SELECT 1"),
+        "(SelectStmt (WithClause WITH (Cte m AS (SubqueryExpr ( (RawStatement MERGE INTO t USING s ON true DO NOTHING) )))) (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)))))"
     );
 }
 
@@ -507,6 +512,109 @@ fn other_select_clauses() {
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)))) (OffsetClause OFFSET (Literal 5) ROWS) (FetchClause FETCH NEXT 3 ROWS ONLY))"
     );
     assert_eq!(stmts("TABLE t"), "(SelectStmt (TableClause TABLE t))");
+}
+
+// ---- INSERT / UPDATE / DELETE ----
+
+#[test]
+fn insert_statements() {
+    assert_eq!(
+        stmts("INSERT INTO s.t AS x (a, b) VALUES (1, DEFAULT), (2, 3) RETURNING a, b AS c"),
+        "(InsertStmt INSERT INTO (TableRef s . t (Alias AS x)) (ExprList ( (ColumnRef a) , (ColumnRef b) )) (SelectStmt (ValuesClause VALUES (ExprList ( (Literal 1) , (Literal DEFAULT) )) , (ExprList ( (Literal 2) , (Literal 3) )))) (ReturningClause RETURNING (TargetItem (ColumnRef a)) , (TargetItem (ColumnRef b) (Alias AS c))))"
+    );
+    // VALUES は予約語ではないが、AS なしの別名にはしない
+    assert_eq!(
+        stmts("INSERT INTO t VALUES (1)"),
+        "(InsertStmt INSERT INTO (TableRef t) (SelectStmt (ValuesClause VALUES (ExprList ( (Literal 1) )))))"
+    );
+    assert_eq!(
+        stmts("INSERT INTO t DEFAULT VALUES"),
+        "(InsertStmt INSERT INTO (TableRef t) DEFAULT VALUES)"
+    );
+    // 括弧で囲んだ問い合わせは列名の並びと区別する
+    assert_eq!(
+        stmts("INSERT INTO t (SELECT 1)"),
+        "(InsertStmt INSERT INTO (TableRef t) (SelectStmt (ParenSelect ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ))))"
+    );
+    assert_eq!(
+        stmts("INSERT INTO t (a) OVERRIDING SYSTEM VALUE SELECT a FROM s"),
+        "(InsertStmt INSERT INTO (TableRef t) (ExprList ( (ColumnRef a) )) OVERRIDING SYSTEM VALUE (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (FromClause FROM (TableRef s)))))"
+    );
+}
+
+#[test]
+fn insert_on_conflict() {
+    // 問い合わせの FROM 句は ON CONFLICT の手前で終わる
+    assert_eq!(
+        stmts(
+            "INSERT INTO t SELECT * FROM s ON CONFLICT (id) WHERE a DO UPDATE SET v = EXCLUDED.v WHERE t.v <> EXCLUDED.v"
+        ),
+        "(InsertStmt INSERT INTO (TableRef t) (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef *))) (FromClause FROM (TableRef s)))) (OnConflictClause ON CONFLICT (ExprList ( (ColumnRef id) )) (WhereClause WHERE (ColumnRef a)) DO UPDATE (SetClause SET (SetItem (ColumnRef v) = (ColumnRef EXCLUDED . v))) (WhereClause WHERE (BinaryExpr (ColumnRef t . v) <> (ColumnRef EXCLUDED . v)))))"
+    );
+    assert_eq!(
+        stmts("INSERT INTO t VALUES (1) ON CONFLICT ON CONSTRAINT t_pkey DO NOTHING RETURNING *"),
+        "(InsertStmt INSERT INTO (TableRef t) (SelectStmt (ValuesClause VALUES (ExprList ( (Literal 1) )))) (OnConflictClause ON CONFLICT ON CONSTRAINT t_pkey DO NOTHING) (ReturningClause RETURNING (TargetItem (ColumnRef *))))"
+    );
+}
+
+#[test]
+fn update_statements() {
+    // SET は予約語ではないが、AS なしの別名にはしない
+    assert_eq!(
+        stmts("UPDATE t SET a = 1"),
+        "(UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))))"
+    );
+    assert_eq!(
+        stmts(
+            "UPDATE ONLY t * AS x SET a[1] = DEFAULT, (b, c) = (SELECT 1, 2), d = a = b FROM s JOIN u ON true WHERE x.id = s.id RETURNING x.*"
+        ),
+        "(UpdateStmt UPDATE (TableRef ONLY t * (Alias AS x)) (SetClause SET (SetItem (SubscriptExpr (ColumnRef a) [ (Literal 1) ]) = (Literal DEFAULT)) , (SetItem (ExprList ( (ColumnRef b) , (ColumnRef c) )) = (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)) , (TargetItem (Literal 2))))) ))) , (SetItem (ColumnRef d) = (BinaryExpr (ColumnRef a) = (ColumnRef b)))) (FromClause FROM (JoinExpr (TableRef s) JOIN (TableRef u) (JoinCondition ON (Literal true)))) (WhereClause WHERE (BinaryExpr (ColumnRef x . id) = (ColumnRef s . id))) (ReturningClause RETURNING (TargetItem (ColumnRef x . *))))"
+    );
+    assert_eq!(
+        stmts("UPDATE t x SET a = 1 WHERE CURRENT OF c"),
+        "(UpdateStmt UPDATE (TableRef t (Alias x)) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))) (WhereClause WHERE CURRENT OF c))"
+    );
+}
+
+#[test]
+fn delete_statements() {
+    assert_eq!(
+        stmts("DELETE FROM t x USING s, u WHERE x.id = s.id RETURNING WITH (OLD AS o) o.id"),
+        "(DeleteStmt DELETE FROM (TableRef t (Alias x)) (UsingClause USING (TableRef s) , (TableRef u)) (WhereClause WHERE (BinaryExpr (ColumnRef x . id) = (ColumnRef s . id))) (ReturningClause RETURNING WITH ( OLD AS o ) (TargetItem (ColumnRef o . id))))"
+    );
+    assert_eq!(
+        stmts("DELETE FROM t"),
+        "(DeleteStmt DELETE FROM (TableRef t))"
+    );
+}
+
+#[test]
+fn with_before_dml() {
+    assert_eq!(
+        stmts("WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"),
+        "(InsertStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) )))) INSERT INTO (TableRef t) (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef *))) (FromClause FROM (TableRef x)))))"
+    );
+    assert_eq!(
+        stmts("WITH x AS (UPDATE t SET a = 1 RETURNING a) DELETE FROM s"),
+        "(DeleteStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))) (ReturningClause RETURNING (TargetItem (ColumnRef a)))) )))) DELETE FROM (TableRef s))"
+    );
+}
+
+#[test]
+fn incomplete_dml_is_kept() {
+    assert_eq!(stmts("INSERT"), "(InsertStmt INSERT)");
+    assert_eq!(
+        stmts("UPDATE t SET"),
+        "(UpdateStmt UPDATE (TableRef t) (SetClause SET))"
+    );
+    assert_eq!(
+        stmts("UPDATE t SET a, b = 1"),
+        "(UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a)) , (SetItem (ColumnRef b) = (Literal 1))))"
+    );
+    assert_eq!(
+        stmts("DELETE t WHERE x"),
+        "(DeleteStmt DELETE (TableRef t) (WhereClause WHERE (ColumnRef x)))"
+    );
 }
 
 // ---- 文の区切りと未対応の文 ----
@@ -557,6 +665,11 @@ fn recovers_inside_lists() {
         stmts("SELECT a b c, d FROM t"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a) (Alias b)) (Error c) , (TargetItem (ColumnRef d))) (FromClause FROM (TableRef t))))"
     );
+    // 括弧の中のエラーは閉じ括弧の手前で止まる
+    assert_eq!(
+        stmts("SELECT (SELECT a b c) + 1"),
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (BinaryExpr (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a) (Alias b)) (Error c)))) )) + (Literal 1))))))"
+    );
 }
 
 #[test]
@@ -587,8 +700,8 @@ fn stray_tokens_become_errors() {
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) (Error ) FROM t) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 2)))))"
     );
     assert_eq!(
-        stmts("WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"),
-        "(SelectStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) )))) (Error INSERT INTO t SELECT * FROM x))"
+        stmts("WITH x AS (SELECT 1) MERGE INTO t USING x ON true DO NOTHING"),
+        "(SelectStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) )))) (Error MERGE INTO t USING x ON true DO NOTHING))"
     );
 }
 

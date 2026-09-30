@@ -21,21 +21,30 @@ Root
     Ident "NULL"
     RParen ")"
   Semicolon ";"
-  RawStatement
+  InsertStmt
     Ident "INSERT"
     Ident "INTO"
-    Ident "users"
-    LParen "("
-    Ident "id"
-    Comma ","
-    Ident "name"
-    RParen ")"
-    Ident "VALUES"
-    LParen "("
-    Number "1"
-    Comma ","
-    String "'alice'"
-    RParen ")"
+    TableRef
+      Ident "users"
+    ExprList
+      LParen "("
+      ColumnRef
+        Ident "id"
+      Comma ","
+      ColumnRef
+        Ident "name"
+      RParen ")"
+    SelectStmt
+      ValuesClause
+        Ident "VALUES"
+        ExprList
+          LParen "("
+          Literal
+            Number "1"
+          Comma ","
+          Literal
+            String "'alice'"
+          RParen ")"
   Semicolon ";"
   SelectStmt
     SimpleSelect

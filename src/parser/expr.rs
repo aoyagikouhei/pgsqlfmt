@@ -75,6 +75,11 @@ impl Parser<'_> {
         self.expr_bp(0)
     }
 
+    /// UPDATE の `SET` の左辺（`col` / `col[1]` / `col.field`）。`=` の手前で止まる。
+    pub(super) fn set_target(&mut self) -> bool {
+        self.expr_bp(BP_COMPARISON + 1)
+    }
+
     fn expr_bp(&mut self, min_bp: u8) -> bool {
         let cp = self.checkpoint();
         if !self.prefix_or_primary() {
@@ -522,13 +527,12 @@ impl Parser<'_> {
         }
     }
 
-    /// `(SELECT ...)`。問い合わせ以外の文（`INSERT ... RETURNING` など）はそのまま保持する。
+    /// `(SELECT ...)`。CTE の本体の `(INSERT ... RETURNING ...)` なども読む。
+    /// それ以外の文はそのまま保持する。
     pub(super) fn subquery_expr(&mut self) {
         self.start_node(NodeKind::SubqueryExpr);
         self.bump();
-        if self.at_query_start(0) {
-            self.select_stmt();
-        } else if !self.at(TokenKind::RParen) && !self.at_statement_end() {
+        if !self.statement_body() && !self.at(TokenKind::RParen) && !self.at_statement_end() {
             self.start_node(NodeKind::RawStatement);
             while !self.at(TokenKind::RParen) && !self.at_statement_end() {
                 self.bump_balanced();

@@ -60,6 +60,18 @@ pub enum NodeKind {
     FetchClause,
     LockingClause,
 
+    // ---- INSERT / UPDATE / DELETE ----
+    InsertStmt,
+    UpdateStmt,
+    DeleteStmt,
+    OnConflictClause,
+    SetClause,
+    /// `col = expr` / `(a, b) = (...)`
+    SetItem,
+    /// DELETE の `USING ...`
+    UsingClause,
+    ReturningClause,
+
     // ---- 式 ----
     BinaryExpr,
     PrefixExpr,

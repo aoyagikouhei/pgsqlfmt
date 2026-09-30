@@ -1,0 +1,250 @@
+---
+source: tests/parser_snapshots.rs
+expression: tree.debug_tree()
+input_file: tests/fixtures/parser/dml.sql
+---
+Root
+  LineComment "-- 在庫の取り込み（UPSERT）"
+  InsertStmt
+    WithClause
+      Ident "WITH"
+      Cte
+        Ident "incoming"
+        Ident "AS"
+        SubqueryExpr
+          LParen "("
+          SelectStmt
+            SimpleSelect
+              SelectClause
+                Ident "SELECT"
+                TargetItem
+                  ColumnRef
+                    Ident "sku"
+                Comma ","
+                TargetItem
+                  ColumnRef
+                    Ident "qty"
+              FromClause
+                Ident "FROM"
+                TableRef
+                  Ident "staging_stock"
+              WhereClause
+                Ident "WHERE"
+                BinaryExpr
+                  ColumnRef
+                    Ident "batch_id"
+                  Operator "="
+                  ParamRef
+                    Param "$1"
+          RParen ")"
+    Ident "INSERT"
+    Ident "INTO"
+    TableRef
+      Ident "stock"
+      Alias
+        Ident "AS"
+        Ident "s"
+    ExprList
+      LParen "("
+      ColumnRef
+        Ident "sku"
+      Comma ","
+      ColumnRef
+        Ident "qty"
+      Comma ","
+      ColumnRef
+        Ident "updated_at"
+      RParen ")"
+    SelectStmt
+      SimpleSelect
+        SelectClause
+          Ident "SELECT"
+          TargetItem
+            ColumnRef
+              Ident "sku"
+          Comma ","
+          TargetItem
+            ColumnRef
+              Ident "qty"
+          Comma ","
+          TargetItem
+            FuncCall
+              Ident "now"
+              ArgList
+                LParen "("
+                RParen ")"
+        FromClause
+          Ident "FROM"
+          TableRef
+            Ident "incoming"
+    OnConflictClause
+      Ident "ON"
+      Ident "CONFLICT"
+      ExprList
+        LParen "("
+        ColumnRef
+          Ident "sku"
+        RParen ")"
+      Ident "DO"
+      Ident "UPDATE"
+      SetClause
+        Ident "SET"
+        SetItem
+          ColumnRef
+            Ident "qty"
+          Operator "="
+          BinaryExpr
+            ColumnRef
+              Ident "s"
+              Dot "."
+              Ident "qty"
+            Operator "+"
+            ColumnRef
+              Ident "EXCLUDED"
+              Dot "."
+              Ident "qty"
+        Comma ","
+        SetItem
+          ColumnRef
+            Ident "updated_at"
+          Operator "="
+          ColumnRef
+            Ident "EXCLUDED"
+            Dot "."
+            Ident "updated_at"
+      WhereClause
+        Ident "WHERE"
+        BinaryExpr
+          ColumnRef
+            Ident "s"
+            Dot "."
+            Ident "locked"
+          Operator "="
+          Literal
+            Ident "false"
+    ReturningClause
+      Ident "RETURNING"
+      TargetItem
+        ColumnRef
+          Ident "s"
+          Dot "."
+          Ident "sku"
+      Comma ","
+      TargetItem
+        ColumnRef
+          Ident "s"
+          Dot "."
+          Ident "qty"
+  Semicolon ";"
+  UpdateStmt
+    Ident "UPDATE"
+    TableRef
+      Ident "orders"
+      Alias
+        Ident "o"
+    SetClause
+      Ident "SET"
+      SetItem
+        ColumnRef
+          Ident "status"
+        Operator "="
+        Literal
+          String "'shipped'"
+      Comma ","
+      SetItem
+        ExprList
+          LParen "("
+          ColumnRef
+            Ident "shipped_at"
+          Comma ","
+          ColumnRef
+            Ident "carrier"
+          RParen ")"
+        Operator "="
+        RowExpr
+          ExprList
+            LParen "("
+            FuncCall
+              Ident "now"
+              ArgList
+                LParen "("
+                RParen ")"
+            Comma ","
+            ColumnRef
+              Ident "c"
+              Dot "."
+              Ident "name"
+            RParen ")"
+    FromClause
+      Ident "FROM"
+      TableRef
+        Ident "carriers"
+        Alias
+          Ident "c"
+    WhereClause
+      Ident "WHERE"
+      BinaryExpr
+        BinaryExpr
+          ColumnRef
+            Ident "c"
+            Dot "."
+            Ident "id"
+          Operator "="
+          ColumnRef
+            Ident "o"
+            Dot "."
+            Ident "carrier_id"
+        Ident "AND"
+        BinaryExpr
+          ColumnRef
+            Ident "o"
+            Dot "."
+            Ident "status"
+          Operator "="
+          Literal
+            String "'packed'"
+    LineComment "-- 梱包済みのみ"
+    ReturningClause
+      Ident "RETURNING"
+      TargetItem
+        ColumnRef
+          Ident "o"
+          Dot "."
+          Ident "id"
+  Semicolon ";"
+  DeleteStmt
+    Ident "DELETE"
+    Ident "FROM"
+    TableRef
+      Ident "sessions"
+      Alias
+        Ident "s"
+    UsingClause
+      Ident "USING"
+      TableRef
+        Ident "users"
+        Alias
+          Ident "u"
+    WhereClause
+      Ident "WHERE"
+      BinaryExpr
+        BinaryExpr
+          ColumnRef
+            Ident "u"
+            Dot "."
+            Ident "id"
+          Operator "="
+          ColumnRef
+            Ident "s"
+            Dot "."
+            Ident "user_id"
+        Ident "AND"
+        IsExpr
+          ColumnRef
+            Ident "u"
+            Dot "."
+            Ident "deleted_at"
+          Ident "IS"
+          Ident "NOT"
+          Ident "NULL"
+  Semicolon ";"

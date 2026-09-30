@@ -22,10 +22,16 @@ impl Parser<'_> {
     }
 
     pub(super) fn select_stmt(&mut self) {
-        self.start_node(NodeKind::SelectStmt);
+        let cp = self.checkpoint();
         if self.at_kw("with") {
             self.with_clause();
         }
+        self.select_rest();
+        self.wrap(cp, NodeKind::SelectStmt);
+    }
+
+    /// WITH より後ろの問い合わせ本体。呼び出し側で `SelectStmt` に包む。
+    pub(super) fn select_rest(&mut self) {
         self.select_body(0);
         loop {
             if self.at_kw("order") && self.nth_kw(1, "by") {
@@ -53,7 +59,6 @@ impl Parser<'_> {
                 break;
             }
         }
-        self.finish_node();
     }
 
     /// 中身を細かく解釈しない句（`FETCH FIRST ...` / `FOR UPDATE ...`）。次の句の手前までを取り込む。
@@ -123,7 +128,7 @@ impl Parser<'_> {
         }
     }
 
-    fn with_clause(&mut self) {
+    pub(super) fn with_clause(&mut self) {
         self.start_node(NodeKind::WithClause);
         self.bump();
         self.eat_kw("recursive");
@@ -180,10 +185,7 @@ impl Parser<'_> {
             self.finish_node();
         }
         if self.at_kw("from") {
-            self.start_node(NodeKind::FromClause);
-            self.bump();
-            self.comma_list(Self::at_clause_keyword, Self::table_expr);
-            self.finish_node();
+            self.table_source_clause();
         }
         if self.at_kw("where") {
             self.where_clause();
@@ -214,7 +216,14 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    fn target_item(&mut self) -> bool {
+    pub(super) fn table_source_clause(&mut self) {
+        self.start_node(NodeKind::FromClause);
+        self.bump();
+        self.comma_list(Self::at_clause_keyword, Self::table_expr);
+        self.finish_node();
+    }
+
+    pub(super) fn target_item(&mut self) -> bool {
         let cp = self.checkpoint();
         if !self.expr() {
             return false;
@@ -224,13 +233,18 @@ impl Parser<'_> {
         true
     }
 
-    /// 別名。`AS` なしの別名は、予約語でない名前だけを受け付ける。
+    pub(super) fn opt_alias(&mut self, table_alias: bool) {
+        self.opt_alias_except(table_alias, &[]);
+    }
+
+    /// 別名。`AS` なしの別名は、予約語でも `not_bare` でもない名前だけを受け付ける。
     /// 表の別名（`table_alias`）では、結合のキーワードも別名にしない。列名の並びを付けられる。
-    fn opt_alias(&mut self, table_alias: bool) {
+    pub(super) fn opt_alias_except(&mut self, table_alias: bool, not_bare: &[&str]) {
         let bare = self.current().is_some_and(|t| match t.kind {
             TokenKind::QuotedIdent { .. } => true,
             TokenKind::Ident => {
                 !is_reserved(t.text)
+                    && !not_bare.iter().any(|kw| t.text.eq_ignore_ascii_case(kw))
                     && !(table_alias
                         && (is_join_keyword(t.text) || t.text.eq_ignore_ascii_case("tablesample")))
             }
@@ -250,7 +264,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    fn table_expr(&mut self) -> bool {
+    pub(super) fn table_expr(&mut self) -> bool {
         let cp = self.checkpoint();
         if !self.table_primary() {
             return false;
@@ -354,10 +368,17 @@ impl Parser<'_> {
         true
     }
 
+    /// `WHERE expr` / `WHERE CURRENT OF cursor`
     pub(super) fn where_clause(&mut self) {
         self.start_node(NodeKind::WhereClause);
         self.bump();
-        self.expr();
+        if self.at_kw("current") && self.nth_kw(1, "of") {
+            self.bump();
+            self.bump();
+            self.name_path();
+        } else {
+            self.expr();
+        }
         self.finish_node();
     }
 

@@ -1,0 +1,21 @@
+-- 在庫の取り込み（UPSERT）
+WITH incoming AS (
+  SELECT sku, qty FROM staging_stock WHERE batch_id = $1
+)
+INSERT INTO stock AS s (sku, qty, updated_at)
+SELECT sku, qty, now() FROM incoming
+ON CONFLICT (sku) DO UPDATE
+  SET qty = s.qty + EXCLUDED.qty,
+      updated_at = EXCLUDED.updated_at
+  WHERE s.locked = false
+RETURNING s.sku, s.qty;
+
+UPDATE orders o
+SET status = 'shipped', (shipped_at, carrier) = (now(), c.name)
+FROM carriers c
+WHERE c.id = o.carrier_id AND o.status = 'packed' -- 梱包済みのみ
+RETURNING o.id;
+
+DELETE FROM sessions s
+USING users u
+WHERE u.id = s.user_id AND u.deleted_at IS NOT NULL;
