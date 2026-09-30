@@ -8,6 +8,8 @@ PostgreSQL の SQL / ストアドプロシージャ（PL/pgSQL）用フォーマ
 
 ```sh
 docker compose run --rm -T dev cargo run -q < query.sql
+# 行幅を変える（既定は 80）
+docker compose run --rm -T dev cargo run -q -- --max-width 100 < query.sql
 ```
 
 整形のスタイル:
@@ -15,6 +17,8 @@ docker compose run --rm -T dev cargo run -q < query.sql
 - 句ごとに改行し、項目が 2 つ以上なら 1 行ずつ字下げして、カンマは行頭に置く
 - WHERE / HAVING / ON の AND・OR で改行する。JOIN は FROM より 1 段、ON はさらに 1 段深くする
 - 副問い合わせと CASE は複数行にする
+- 行幅（既定 80、全角文字は 2 桁）に収まらない式は折り返す。関数の引数・`IN (...)` などの括弧の中の並びは
+  1 行ずつ行頭カンマで、二項演算は演算子の前で、`OVER (...)` は句ごとに、RAISE / EXECUTE は `USING` / `INTO` の前で改行する
 - キーワードは大文字にする。識別子・関数名・型名は入力のまま
 - コメントと、文やコメントの前後の空行は残す
 - `CREATE FUNCTION` / `CREATE PROCEDURE` は RETURNS・LANGUAGE・AS などのオプションを 1 行ずつにする

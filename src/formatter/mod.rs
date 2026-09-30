@@ -4,7 +4,7 @@
 //! - 句ごとに改行する。並びの項目が 2 つ以上なら、項目を 1 行ずつ字下げし、カンマは行頭に置く
 //! - WHERE / HAVING / ON の最上位の AND・OR は改行して 1 段深くする
 //! - JOIN は FROM の行より 1 段、ON はさらに 1 段深くする
-//! - 副問い合わせと CASE は複数行にする。それ以外の式は 1 行
+//! - 副問い合わせと CASE は複数行にする。それ以外の式は 1 行で、行幅に収まらなければ折り返す（`wrap.rs`）
 //! - キーワードは大文字にする。識別子・関数名・型名は入力のまま
 //!
 //! `RawStatement` / `Error` は元のテキストのまま出す。
@@ -13,6 +13,7 @@ mod plpgsql;
 mod stmt;
 #[cfg(test)]
 mod tests;
+mod wrap;
 mod writer;
 
 use crate::lexer::{Token, TokenKind};
@@ -20,10 +21,27 @@ use crate::parser::parse;
 use crate::syntax::{Element, Node, NodeKind};
 use writer::{INDENT, Writer, is_opaque};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatOptions {
+    /// 行幅。式がこれを超えるときに折り返す（全角文字は 2 桁と数える）
+    pub max_width: usize,
+}
+
+impl Default for FormatOptions {
+    fn default() -> Self {
+        FormatOptions { max_width: 80 }
+    }
+}
+
 pub fn format(src: &str) -> String {
+    format_with_options(src, &FormatOptions::default())
+}
+
+pub fn format_with_options(src: &str, options: &FormatOptions) -> String {
     let root = parse(src);
     let mut f = Formatter {
         w: Writer::new(src, &root),
+        max_width: options.max_width,
     };
     f.root(&root);
     f.w.finish()
@@ -72,6 +90,7 @@ const LOOSE_KEYWORDS: &[&str] = &[
 
 struct Formatter<'a> {
     w: Writer<'a>,
+    max_width: usize,
 }
 
 /// 空白・コメントを除いた子
@@ -186,6 +205,10 @@ impl<'a> Formatter<'a> {
                     || is_node(e, NodeKind::SubqueryExpr)
             }),
             NodeKind::PrefixExpr => self.prefix_expr(node),
+            NodeKind::ArgList | NodeKind::ExprList | NodeKind::ParamList => self.paren_list(node),
+            NodeKind::BinaryExpr => self.binary_expr(node),
+            NodeKind::WindowSpec => self.window_spec(node),
+            NodeKind::PlRaise | NodeKind::PlExecute => self.statement_with_options(node),
             NodeKind::FetchClause | NodeKind::LockingClause | NodeKind::FrameClause => {
                 self.loose(node)
             }

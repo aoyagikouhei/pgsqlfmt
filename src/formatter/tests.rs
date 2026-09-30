@@ -1,4 +1,4 @@
-use super::format;
+use super::{FormatOptions, format, format_with_options};
 
 /// 整形結果が期待どおりで、もう一度整形しても変わらないこと
 #[track_caller]
@@ -6,6 +6,19 @@ fn check(input: &str, expected: &str) {
     let formatted = format(input);
     assert_eq!(formatted, expected, "\n--- 実際 ---\n{formatted}");
     assert_eq!(format(&formatted), formatted, "2 回目の整形で変わった");
+}
+
+/// 行幅を指定した `check`
+#[track_caller]
+fn check_width(max_width: usize, input: &str, expected: &str) {
+    let options = FormatOptions { max_width };
+    let formatted = format_with_options(input, &options);
+    assert_eq!(formatted, expected, "\n--- 実際 ---\n{formatted}");
+    assert_eq!(
+        format_with_options(&formatted, &options),
+        formatted,
+        "2 回目の整形で変わった"
+    );
 }
 
 #[test]
@@ -325,7 +338,11 @@ SELECT
   , $1
   , e'\\n'
   , interval '1 day'
-  , count(*) OVER (PARTITION BY a ORDER BY b ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+  , count(*) OVER (
+        PARTITION BY a
+        ORDER BY b
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    )
 ",
     );
 }
@@ -442,7 +459,16 @@ SELECT 1
         "select a -- x\n, -- y\nb",
         "SELECT\n    a -- x\n  , -- y\n    b\n",
     );
-    check("select 1 + -- x\n/* y */ 2", "SELECT 1 + -- x\n/* y */ 2\n");
+    // 行コメントの後ろの短い式は折り返さない
+    check(
+        "select 1 where -- c\n a = 1",
+        "SELECT 1\nWHERE -- c\n    a = 1\n",
+    );
+    // 行コメントを含む式は 1 行にできないので、演算子の前で折り返す
+    check(
+        "select 1 + -- x\n/* y */ 2",
+        "SELECT 1\n    + -- x\n    /* y */ 2\n",
+    );
     // CTE のカンマの行末コメントは、前の CTE の行末に残す
     check(
         "with a as (select 1), -- a の後\nb as (select 2) select 1",
@@ -456,8 +482,8 @@ WITH a AS (
 SELECT 1
 ",
     );
-    // 式の途中の行コメントの後ろは改行する
-    check("select a + -- c\n b", "SELECT a + -- c\nb\n");
+    // 式の途中の行コメントの後ろは改行する（1 行にできないので折り返す）
+    check("select a + -- c\n b", "SELECT a\n    + -- c\n    b\n");
     check("select /* x */ 1 /* y */", "SELECT /* x */ 1 /* y */\n");
 }
 
@@ -654,5 +680,231 @@ BEGIN ATOMIC
 END;
 CALL p(1)
 ",
+    );
+}
+
+// ---- 行幅による折り返し ----
+
+#[test]
+fn default_width_is_80() {
+    // ちょうど 80 桁は折り返さず、81 桁で折り返す
+    let fits = format!("SELECT f({})\n", "a".repeat(80 - "SELECT f()".len()));
+    assert_eq!(format(&fits), fits);
+    let long = format!("SELECT f({})", "a".repeat(81 - "SELECT f()".len()));
+    assert!(format(&long).starts_with("SELECT f(\n"));
+}
+
+#[test]
+fn long_argument_lists_are_broken() {
+    check_width(
+        30,
+        "select coalesce(first_name, last_name, 'unknown') as name",
+        "\
+SELECT coalesce(
+    first_name
+  , last_name
+  , 'unknown'
+) AS name
+",
+    );
+    // 外側を折り返したあと、内側が収まれば 1 行のまま
+    check_width(
+        30,
+        "select f(g(a, b), h(c, d), i(e, f))",
+        "\
+SELECT f(
+    g(a, b)
+  , h(c, d)
+  , i(e, f)
+)
+",
+    );
+    // 内側も収まらなければ、さらに折り返す
+    check_width(
+        20,
+        "select f(g(aaaa, bbbb, cccc), 1)",
+        "\
+SELECT f(
+    g(
+        aaaa
+      , bbbb
+      , cccc
+    )
+  , 1
+)
+",
+    );
+}
+
+#[test]
+fn long_lists_in_parentheses_are_broken() {
+    check_width(
+        30,
+        "select 1 where a in (1000, 2000, 3000, 4000)",
+        "\
+SELECT 1
+WHERE a IN (
+        1000
+      , 2000
+      , 3000
+      , 4000
+    )
+",
+    );
+    check_width(
+        30,
+        "insert into t (alpha, beta, gamma) values (1, 2, 3)",
+        "\
+INSERT INTO t (
+    alpha
+  , beta
+  , gamma
+)
+VALUES (1, 2, 3)
+",
+    );
+    check_width(
+        30,
+        "create function f(a int, b text, c numeric) returns int as $$ select 1 $$ language sql",
+        "\
+CREATE FUNCTION f(
+    a int
+  , b text
+  , c numeric
+)
+RETURNS int
+AS $$
+SELECT 1
+$$
+LANGUAGE sql
+",
+    );
+}
+
+#[test]
+fn long_binary_expressions_break_before_operators() {
+    check_width(
+        30,
+        "select first_name || ' ' || middle_name || ' ' || last_name as full_name",
+        "\
+SELECT first_name
+    || ' '
+    || middle_name
+    || ' '
+    || last_name AS full_name
+",
+    );
+    // WHERE の条件の中の式は、AND の行よりさらに 1 段深く折り返す
+    check_width(
+        30,
+        "select 1 where a = 1 and total_amount + tax_amount > limit_amount",
+        "\
+SELECT 1
+WHERE a = 1
+    AND total_amount
+            + tax_amount
+        > limit_amount
+",
+    );
+}
+
+#[test]
+fn long_window_specs_are_broken() {
+    check_width(
+        40,
+        "select rank() over (partition by dept order by salary desc) from emp",
+        "\
+SELECT rank() OVER (
+    PARTITION BY dept
+    ORDER BY salary DESC
+)
+FROM emp
+",
+    );
+}
+
+#[test]
+fn long_raise_and_execute_break_before_options() {
+    check_width(
+        40,
+        "do $$ begin raise exception 'failed: %', reason using errcode = 'P0001'; execute q into r using a, b; end $$",
+        "\
+DO $$
+BEGIN
+    RAISE EXCEPTION 'failed: %', reason
+        USING ERRCODE = 'P0001';
+    EXECUTE q INTO r USING a, b;
+END
+$$
+",
+    );
+}
+
+#[test]
+fn comments_in_broken_lists_stay_with_items() {
+    check_width(
+        30,
+        "select f(aaaa, -- a の説明\n bbbb, cccc)",
+        "\
+SELECT f(
+    aaaa -- a の説明
+  , bbbb
+  , cccc
+)
+",
+    );
+}
+
+#[test]
+fn lists_containing_multiline_parts_are_broken() {
+    // 副問い合わせは複数行になるので、それを含む引数の並びは折り返す。
+    // 測っているあいだに中のコメントを動かさない
+    check(
+        "select coalesce((select a, -- a の説明\n b from t), 0)",
+        "\
+SELECT coalesce(
+    (
+        SELECT
+            a -- a の説明
+          , b
+        FROM t
+    )
+  , 0
+)
+",
+    );
+    // 複数行の文字列や、前に空行のあるコメントを含む並びも 1 行にはしない
+    check("select f('a\nb', c)", "SELECT f(\n    'a\nb'\n  , c\n)\n");
+    check(
+        "select f(a,\n\n/* c */ b)",
+        "SELECT f(\n    a\n  ,\n\n    /* c */ b\n)\n",
+    );
+    // 独立した行のコメントは、行頭カンマより前に出す
+    check_width(
+        20,
+        "select f(aaaa,\n-- b の前\nbbbb, cccc)",
+        "\
+SELECT f(
+    aaaa
+    -- b の前
+  , bbbb
+  , cccc
+)
+",
+    );
+}
+
+#[test]
+fn wide_characters_count_as_two_columns() {
+    // 全角 10 文字は 20 桁なので 32 桁（文字数で数えると 22 桁）
+    check_width(
+        32,
+        "select f('あいうえおかきくけこ')",
+        "SELECT f('あいうえおかきくけこ')\n",
+    );
+    check_width(
+        31,
+        "select f('あいうえおかきくけこ')",
+        "SELECT f(\n    'あいうえおかきくけこ'\n)\n",
     );
 }

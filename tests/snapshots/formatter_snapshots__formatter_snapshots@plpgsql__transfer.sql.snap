@@ -3,7 +3,12 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/plpgsql/transfer.sql
 ---
-CREATE OR REPLACE FUNCTION public.transfer(p_from bigint, p_to bigint, p_amount numeric(12, 2) DEFAULT 0, OUT o_balance numeric)
+CREATE OR REPLACE FUNCTION public.transfer(
+    p_from bigint
+  , p_to bigint
+  , p_amount numeric(12, 2) DEFAULT 0
+  , OUT o_balance numeric
+)
 RETURNS numeric
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -28,7 +33,8 @@ BEGIN
     WHERE id = p_from
     FOR UPDATE;
     IF v_balance < p_amount THEN
-        RAISE EXCEPTION 'insufficient balance: % < %', v_balance, p_amount USING ERRCODE = 'P0001', HINT = 'check';
+        RAISE EXCEPTION 'insufficient balance: % < %', v_balance, p_amount
+            USING ERRCODE = 'P0001', HINT = 'check';
     ELSIF p_amount = 0 THEN
         RETURN 0;
     ELSE
@@ -69,7 +75,9 @@ BEGIN
         EXIT;
     END LOOP;
 
-    EXECUTE format('select count(*) from %I', 'logs') INTO v_balance USING p_from;
+    EXECUTE format('select count(*) from %I', 'logs')
+        INTO v_balance
+        USING p_from;
     GET DIAGNOSTICS k = ROW_COUNT;
     OPEN c_log(p_from);
     FETCH NEXT FROM c_log INTO v_row;

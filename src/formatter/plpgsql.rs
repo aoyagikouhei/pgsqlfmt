@@ -70,7 +70,7 @@ impl<'a> Formatter<'a> {
             match as_node(element).map(|n| (n, n.kind)) {
                 Some((n, NodeKind::ParamList)) => {
                     self.w.glue();
-                    self.inline(n);
+                    self.node(n);
                 }
                 Some((n, NodeKind::ReturnsClause | NodeKind::FunctionOption)) => {
                     self.w.newline(base);

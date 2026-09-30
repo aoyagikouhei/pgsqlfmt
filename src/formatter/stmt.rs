@@ -271,7 +271,9 @@ fn first_token<'a>(elements: &[&Element<'a>]) -> Option<Token<'a>> {
 }
 
 /// `left op right` の形なら、その 3 つ
-fn split_binary<'n, 'a>(node: &'n Node<'a>) -> Option<(&'n Node<'a>, &'n Token<'a>, &'n Node<'a>)> {
+pub(super) fn split_binary<'n, 'a>(
+    node: &'n Node<'a>,
+) -> Option<(&'n Node<'a>, &'n Token<'a>, &'n Node<'a>)> {
     match children(node).as_slice() {
         [left, op, right] => Some((as_node(left)?, as_token(op)?, as_node(right)?)),
         _ => None,

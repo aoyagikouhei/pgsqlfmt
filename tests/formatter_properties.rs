@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
-use sql_formatter::format;
 use sql_formatter::lexer::{Token, TokenKind, tokenize};
+use sql_formatter::{FormatOptions, format, format_with_options};
 
 fn fixtures() -> Vec<String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -90,6 +90,21 @@ fn tokens_and_comments_are_preserved() {
             let context = format!("\n--- 入力 ---\n{input}\n--- 出力 ---\n{output}");
             assert_eq!(significant(&output), significant(&input), "{context}");
             assert_eq!(comments(&output), comments(&input), "{context}");
+        }
+    }
+}
+
+/// 狭い行幅でも、トークン・コメントが残り、2 回整形しても変わらない
+#[test]
+fn narrow_width_formatting_is_lossless_and_idempotent() {
+    let options = FormatOptions { max_width: 20 };
+    for src in fixtures() {
+        for input in variants(&src) {
+            let once = format_with_options(&input, &options);
+            let context = format!("\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}");
+            assert_eq!(significant(&once), significant(&input), "{context}");
+            assert_eq!(comments(&once), comments(&input), "{context}");
+            assert_eq!(format_with_options(&once, &options), once, "{context}");
         }
     }
 }

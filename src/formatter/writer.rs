@@ -13,6 +13,7 @@ use crate::syntax::{Element, Node, NodeKind};
 
 pub(super) const INDENT: usize = 4;
 
+#[derive(Clone)]
 struct Comment<'a> {
     token: Token<'a>,
     /// 元のテキストで、直前に改行があった（入力の先頭を含む）
@@ -25,7 +26,7 @@ struct Comment<'a> {
     blank_after: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Attached<'a> {
     leading: Vec<Comment<'a>>,
     trailing: Vec<Comment<'a>>,
@@ -53,6 +54,23 @@ pub(super) struct Writer<'a> {
     /// 次のトークンを空白なしで続ける
     glue_next: bool,
     /// 行コメントを書いたので、次のトークンは改行してから書く
+    must_break: bool,
+    /// 測定中なら、出力せずに幅だけを数える
+    measure: Option<Measure>,
+}
+
+/// 1 行で書いたときに行幅に収まるかの測定
+struct Measure {
+    column: usize,
+    max_width: usize,
+    fits: bool,
+}
+
+/// 測定の前の状態（測定のあとに戻す）
+pub(super) struct Saved {
+    indent: usize,
+    at_line_start: bool,
+    glue_next: bool,
     must_break: bool,
 }
 
@@ -86,6 +104,7 @@ impl<'a> Writer<'a> {
             at_line_start: true,
             glue_next: false,
             must_break: false,
+            measure: None,
         };
         w.attach_comments(root);
         w
@@ -171,10 +190,69 @@ impl<'a> Writer<'a> {
         self.indent
     }
 
+    /// これから書く位置の桁（行頭なら 0。字下げは次のトークンを書くときに入る）
+    fn column(&self) -> usize {
+        let line_start = self.out.rfind('\n').map_or(0, |i| i + 1);
+        display_width(&self.out[line_start..])
+    }
+
+    pub(super) fn measuring(&self) -> bool {
+        self.measure.is_some()
+    }
+
+    /// 測定を始める。以降の出力は捨てて、いまの位置から `max_width` に収まるかだけを調べる。
+    pub(super) fn begin_measure(&mut self, max_width: usize) -> Saved {
+        let saved = Saved {
+            indent: self.indent,
+            at_line_start: self.at_line_start,
+            glue_next: self.glue_next,
+            must_break: self.must_break,
+        };
+        // 行コメントの後ろなら、実際には次の行の頭から書くので、そこから測る
+        if self.must_break {
+            self.must_break = false;
+            self.at_line_start = true;
+        }
+        self.measure = Some(Measure {
+            column: self.column(),
+            max_width,
+            fits: true,
+        });
+        saved
+    }
+
+    /// 測定を終えて状態を戻し、1 行で収まったかを返す
+    pub(super) fn end_measure(&mut self, saved: Saved) -> bool {
+        let measure = self.measure.take().expect("測定中でない");
+        self.indent = saved.indent;
+        self.at_line_start = saved.at_line_start;
+        self.glue_next = saved.glue_next;
+        self.must_break = saved.must_break;
+        measure.fits
+    }
+
+    /// 文字列を書く。測定中は幅だけを数える。
+    fn emit(&mut self, text: &str) {
+        match &mut self.measure {
+            Some(m) => {
+                if text.contains('\n') {
+                    m.fits = false;
+                } else {
+                    m.column += display_width(text);
+                    m.fits &= m.column <= m.max_width;
+                }
+            }
+            None => self.out.push_str(text),
+        }
+    }
+
     /// 改行して、次の行を `indent` の字下げで始める。行頭なら字下げだけ変える。
     pub(super) fn newline(&mut self, indent: usize) {
         if !self.at_line_start {
-            self.out.push('\n');
+            match &mut self.measure {
+                Some(m) => m.fits = false,
+                None => self.out.push('\n'),
+            }
             self.at_line_start = true;
         }
         self.indent = indent;
@@ -190,8 +268,9 @@ impl<'a> Writer<'a> {
     /// `token` の後ろの行末コメントを、いまの位置に書く（行頭カンマにする前の行末に残すため）。
     /// いまの行がすでに行コメントで終わっているとき（書くと行コメントに飲み込まれる）と、
     /// まだ何も書いていない行のときは動かさない。
+    /// 測定中も動かさない（取り出してしまうと、本番で書くときにコメントがなくなる）。
     pub(super) fn flush_trailing_comments(&mut self, token: &Token<'a>) {
-        if self.must_break || self.at_line_start {
+        if self.must_break || self.at_line_start || self.measuring() {
             return;
         }
         let Some(attached) = self.comments.get_mut(&token.offset) else {
@@ -231,6 +310,10 @@ impl<'a> Writer<'a> {
 
     /// 空行を入れる（出力の先頭では何もしない）
     pub(super) fn blank_line(&mut self) {
+        if let Some(m) = &mut self.measure {
+            m.fits = false;
+            return;
+        }
         if self.out.is_empty() {
             return;
         }
@@ -261,7 +344,7 @@ impl<'a> Writer<'a> {
 
     /// トークンを `text` として書く。前後のコメントも書く。
     pub(super) fn token_as(&mut self, token: &Token<'a>, text: &str, outdent: usize) {
-        let attached = self.comments.remove(&token.offset).unwrap_or_default();
+        let attached = self.take_comments(token);
         for comment in attached.leading {
             self.leading_comment(&comment);
         }
@@ -276,7 +359,7 @@ impl<'a> Writer<'a> {
         let Some((first, last)) = token_range(node) else {
             return;
         };
-        let attached = self.comments.remove(&first.offset).unwrap_or_default();
+        let attached = self.take_comments(&first);
         for comment in attached.leading {
             self.leading_comment(&comment);
         }
@@ -285,13 +368,22 @@ impl<'a> Writer<'a> {
         let trailing = if first.offset == last.offset {
             attached.trailing
         } else {
-            self.comments
-                .remove(&last.offset)
-                .unwrap_or_default()
-                .trailing
+            self.take_comments(&last).trailing
         };
         for comment in trailing {
             self.trailing_comment(&comment);
+        }
+    }
+
+    /// トークンに結び付けたコメントを取り出す。測定中は取り出さずに写しを返す。
+    fn take_comments(&mut self, token: &Token<'a>) -> Attached<'a> {
+        if self.measuring() {
+            self.comments
+                .get(&token.offset)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            self.comments.remove(&token.offset).unwrap_or_default()
         }
     }
 
@@ -302,12 +394,12 @@ impl<'a> Writer<'a> {
         }
         if self.at_line_start {
             let width = self.indent.saturating_sub(outdent);
-            self.out.extend(std::iter::repeat_n(' ', width));
+            self.emit(&" ".repeat(width));
             self.at_line_start = false;
         } else if !self.glue_next && !no_space_before(kind) {
-            self.out.push(' ');
+            self.emit(" ");
         }
-        self.out.push_str(text);
+        self.emit(text);
         self.glue_next = no_space_after(kind);
     }
 
@@ -326,8 +418,8 @@ impl<'a> Writer<'a> {
             self.word(comment.token.text, comment.token.kind, 0);
         } else {
             // 行の途中のコメントは、直前のトークンによらず空白を 1 つ空ける（行末のコメントと同じ形にする）
-            self.out.push(' ');
-            self.out.push_str(comment.token.text);
+            self.emit(" ");
+            self.emit(comment.token.text);
             self.glue_next = false;
         }
         if comment.newline_after || comment.token.kind == TokenKind::LineComment {
@@ -340,8 +432,8 @@ impl<'a> Writer<'a> {
     }
 
     fn trailing_comment(&mut self, comment: &Comment<'a>) {
-        self.out.push(' ');
-        self.out.push_str(comment.token.text);
+        self.emit(" ");
+        self.emit(comment.token.text);
         self.glue_next = false;
         if comment.token.kind == TokenKind::LineComment {
             self.must_break = true;
@@ -383,6 +475,27 @@ fn flatten<'a>(node: &Node<'a>, out: &mut Vec<Token<'a>>) {
             Element::Token(t) => out.push(*t),
         }
     }
+}
+
+/// 表示の幅。全角の文字（CJK など）は 2 桁と数える。
+pub(super) fn display_width(text: &str) -> usize {
+    text.chars()
+        .map(|c| match c as u32 {
+            0x1100..=0x115F
+            | 0x2E80..=0x303E
+            | 0x3041..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xA000..=0xA4CF
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE4F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x20000..=0x3FFFD => 2,
+            _ => 1,
+        })
+        .sum()
 }
 
 fn count_newlines(text: &str) -> usize {
