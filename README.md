@@ -62,7 +62,7 @@ pre-commit では、`.pre-commit-config.yaml` に次のように書きます。
 ```yaml
 repos:
   - repo: https://github.com/aoyagikouhei/pgsqlfmt
-    rev: v0.1.0
+    rev: v0.2.0
     hooks:
       - id: pgsqlfmt
 ```
@@ -71,6 +71,7 @@ repos:
 
 - [使い方](docs/usage.md): インストール、オプション、pre-commit、整形のスタイル、対応している文
 - [開発](docs/development.md): 開発環境、コードの構成、テスト、新しい構文に対応する手順
+- [変更履歴](CHANGELOG.md)
 
 ## ライセンス
 

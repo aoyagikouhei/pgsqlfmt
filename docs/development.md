@@ -166,7 +166,7 @@ GitHub Actions（`.github/workflows/ci.yml`）が、main への push と PR ご�
 
 リリースの手順は次のとおりです。
 
-1. `Cargo.toml` の `version` を上げ、`Cargo.lock` も更新して main に push します。
+1. `Cargo.toml` の `version` を上げ、`Cargo.lock` も更新します。`CHANGELOG.md` の `[Unreleased]` を新しい版と日付の見出しにし、末尾の比較リンクも足して、main に push します。
 2. main の CI が通ったことを確かめます。
 3. タグを打って push します。
 
