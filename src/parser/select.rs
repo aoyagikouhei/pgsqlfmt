@@ -407,11 +407,17 @@ impl Parser<'_> {
         self.finish_node();
     }
 
+    /// `GROUPING SETS (...)` / `ROLLUP (...)` / `CUBE (...)` か式
     fn group_item(&mut self) -> bool {
-        if self.at_kw("grouping") && self.nth_kw(1, "sets") {
+        let grouping_sets = self.at_kw("grouping") && self.nth_kw(1, "sets");
+        let rollup_or_cube =
+            self.at_any_kw(&["rollup", "cube"]) && self.nth_is(1, TokenKind::LParen);
+        if grouping_sets || rollup_or_cube {
             self.start_node(NodeKind::GroupingSets);
             self.bump_kw();
-            self.bump_kw();
+            if grouping_sets {
+                self.bump_kw();
+            }
             if self.at(TokenKind::LParen) {
                 self.expr_list();
             }

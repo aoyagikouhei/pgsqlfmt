@@ -156,7 +156,7 @@ USING (
     VALUES
         ('a', 150::numeric)
       , ('b', 5::numeric)
-) AS s (code, price)
+) AS s(code, price)
     ON s.code = p.code
 WHEN MATCHED AND s.price > 1000 THEN
     DELETE

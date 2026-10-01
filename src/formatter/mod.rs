@@ -264,6 +264,8 @@ impl<'a> Formatter<'a> {
                 self.inline_glued(node, |e| is_token(e, TokenKind::LBracket))
             }
             NodeKind::CastCall => self.inline_glued(node, |e| is_token(e, TokenKind::LParen)),
+            // 別名の列の並び `AS g(n, i)` は名前に続ける
+            NodeKind::Alias => self.inline_glued(node, |e| is_node(e, NodeKind::ExprList)),
             NodeKind::ArrayExpr | NodeKind::RowExpr => self.inline_glued(node, |e| {
                 is_token(e, TokenKind::LBracket)
                     || is_node(e, NodeKind::ExprList)
@@ -322,7 +324,7 @@ impl<'a> Formatter<'a> {
         }
         let saved = self.w.begin_measure_inline();
         let start = self.w.measure_column().unwrap_or(0);
-        self.inline(node);
+        self.node(node);
         let end = self.w.measure_column().unwrap_or(start);
         self.w.end_measure(saved);
         end.saturating_sub(start)

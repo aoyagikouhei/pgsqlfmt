@@ -87,7 +87,7 @@ FROM (
     VALUES
         (1, 'one')
       , (2, 'two')
-) AS v (x, y)
+) AS v(x, y)
 WHERE x > 1
     OR y LIKE 'o%'
 ORDER BY x

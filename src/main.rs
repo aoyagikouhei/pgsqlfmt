@@ -166,7 +166,8 @@ fn find_sql_files(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
             continue;
         }
         let path = entry.path();
-        // シンボリックリンクのディレクトリはたどらない（循環を避けるため）
+        // `file_type()` はリンク先を見ないので、ディレクトリへのシンボリックリンクはたどらない（循環を避ける）。
+        // ファイルへのリンクは、下の `is_file()` がリンク先を見るので含める
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
             find_sql_files(&path, files)?;
@@ -179,6 +180,27 @@ fn find_sql_files(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// 同じディレクトリの一時ファイルに書いてから置き換える。途中で止まっても元のファイルが欠けない。
+/// 権限は元のファイルに合わせる
+fn write_atomically(path: &Path, content: &str) -> io::Result<()> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "ファイル名がありません"))?;
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(file_name);
+    tmp_name.push(".pgsqlfmt-tmp");
+    let tmp = path.with_file_name(tmp_name);
+    let result = (|| {
+        std::fs::write(&tmp, content)?;
+        std::fs::set_permissions(&tmp, std::fs::metadata(path)?.permissions())?;
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 fn main() -> ExitCode {
@@ -233,7 +255,7 @@ fn main() -> ExitCode {
                 if formatted == src {
                     Ok(())
                 } else {
-                    std::fs::write(path, &formatted)
+                    write_atomically(path, &formatted)
                         .map(|()| eprintln!("整形しました: {}", input.name()))
                 }
             }

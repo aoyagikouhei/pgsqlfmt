@@ -65,6 +65,45 @@ fn newline_style_follows_the_input() {
 }
 
 #[test]
+fn unterminated_token_at_the_end_is_left_alone() {
+    // 閉じていない文字列・コメントの中身（最後の空白を含む）を変えず、改行も足さない
+    assert_eq!(format("select 'abc  "), "SELECT 'abc  ");
+    assert_eq!(format("select 1 /* a\n  "), "SELECT 1 /* a\n  ");
+    assert_eq!(format("select $$x "), "SELECT $$x ");
+    assert_eq!(format("select \"q"), "SELECT \"q");
+}
+
+#[test]
+fn alias_column_list_and_grouping_keywords() {
+    check(
+        "select * from (select 1, 2) as s (a, b), generate_series(1, 2) g(n) group by rollup (a), cube (b), grouping sets ((a), ())",
+        "\
+SELECT *
+FROM
+    (
+        SELECT
+            1
+          , 2
+    ) AS s(a, b)
+  , generate_series(1, 2) g(n)
+GROUP BY
+    ROLLUP (a)
+  , CUBE (b)
+  , GROUPING SETS ((a), ())
+",
+    );
+    check(
+        "select timestamp with time zone '2024-01-01', double precision '1', a in :ids",
+        "\
+SELECT
+    timestamp with time zone '2024-01-01'
+  , double precision '1'
+  , a IN :ids
+",
+    );
+}
+
+#[test]
 fn single_item_stays_on_clause_line() {
     check("select a from t", "SELECT a\nFROM t\n");
 }
@@ -1708,10 +1747,10 @@ SELECT
 FROM m
 ",
     );
-    // 別名そのものを書くときは、別名の幅を差し引かない（78 桁で収まる）
+    // 別名そのものを書くときは、別名の幅を差し引かない（77 桁で収まる）
     check(
         "select * from generate_series(1, 2) as g(first_column_name, second_column_name, third)",
-        "SELECT *\nFROM generate_series(1, 2) AS g (first_column_name, second_column_name, third)\n",
+        "SELECT *\nFROM generate_series(1, 2) AS g(first_column_name, second_column_name, third)\n",
     );
     // 括弧を折り返したあとの行では、別名の幅を差し引かない（別名は閉じ括弧の行に来る）
     check(

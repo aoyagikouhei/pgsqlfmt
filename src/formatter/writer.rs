@@ -63,6 +63,8 @@ pub(super) struct Writer<'a> {
     after_colon: Option<usize>,
     /// 改行の文字列。入力の最初の改行に合わせる（`\r\n` の入力は `\r\n` のまま）
     newline: &'static str,
+    /// 入力の最後のトークンが閉じていない文字列・コメント。その中身を変えないよう、最後の空白を削らず改行も足さない
+    ends_unterminated: bool,
 }
 
 /// 1 行で書いたときに行幅に収まるかの測定
@@ -80,6 +82,20 @@ pub(super) struct Saved {
     at_line_start: bool,
     glue_next: bool,
     must_break: bool,
+}
+
+/// 閉じていない文字列・引用符付きの名前・コメント（入力の終わりまで続く）
+fn is_unterminated(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::BlockComment { terminated: false }
+            | TokenKind::QuotedIdent { terminated: false }
+            | TokenKind::String {
+                terminated: false,
+                ..
+            }
+            | TokenKind::DollarString { terminated: false }
+    )
 }
 
 /// 元のテキストのまま出すノード
@@ -117,6 +133,7 @@ impl<'a> Writer<'a> {
             keep_len: 0,
             after_colon: None,
             newline: newline_style(src),
+            ends_unterminated: false,
         };
         w.attach_comments(root);
         w
@@ -125,6 +142,8 @@ impl<'a> Writer<'a> {
     fn attach_comments(&mut self, root: &Node<'a>) {
         let mut units = Vec::new();
         flatten(root, &mut units);
+
+        self.ends_unterminated = units.last().is_some_and(|t| is_unterminated(t.kind));
 
         let mut prev: Option<Token<'a>> = None;
         let mut whitespace = "";
@@ -512,6 +531,10 @@ impl<'a> Writer<'a> {
                 self.newline(0);
             }
             self.word(comment.token.text, comment.token.kind, 0);
+        }
+        // 閉じていない文字列・コメントは入力の終わりまで続くので、必ず出力の最後にある
+        if self.ends_unterminated {
+            return self.out;
         }
         let trimmed = self.out.trim_end().len().max(self.keep_len);
         self.out.truncate(trimmed);

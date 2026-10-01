@@ -21,9 +21,10 @@ const BP_OTHER_OP: u8 = 7;
 const BP_ADD: u8 = 8;
 const BP_MUL: u8 = 9;
 const BP_EXP: u8 = 10;
-const BP_UNARY: u8 = 11;
+const BP_AT: u8 = 11;
 const BP_COLLATE: u8 = 12;
-const BP_AT: u8 = 13;
+/// 単項の `+` / `-`。gram.y の UMINUS は COLLATE・AT より強い（`-x COLLATE "C"` は `(-x) COLLATE "C"`）
+const BP_UNARY: u8 = 13;
 const BP_SUBSCRIPT: u8 = 14;
 const BP_CAST: u8 = 15;
 const BP_FIELD: u8 = 16;
@@ -180,6 +181,9 @@ impl Parser<'_> {
                     } else {
                         self.expr_list();
                     }
+                } else if self.at(TokenKind::PsqlVariable) {
+                    // `IN :list`（psql が `(1, 2)` などに置き換える）
+                    self.bump();
                 }
             }
             Infix::Like => {
@@ -416,15 +420,40 @@ impl Parser<'_> {
             self.wrap(cp, NodeKind::FuncCall);
         } else if parts == 1
             && first.kind == TokenKind::Ident
-            && self
-                .current()
-                .is_some_and(|t| matches!(t.kind, TokenKind::String { .. }))
+            && let Some(words) = self.typed_literal_words()
         {
+            // 型名の残りの語（`with time zone` など）は型名と同じく入力のまま
+            for _ in 0..words {
+                self.bump();
+            }
             self.bump();
             self.wrap(cp, NodeKind::TypedLiteral);
         } else {
             self.wrap(cp, NodeKind::ColumnRef);
         }
+    }
+
+    /// 型名の最初の語を読んだあとで、`type 'literal'` の文字列が続くなら、その前にある型名の残りの語の数
+    /// （`interval '1 day'` は 0、`timestamp with time zone '...'` は 3、`double precision '1'` は 1）
+    fn typed_literal_words(&self) -> Option<usize> {
+        const REST_OF_TYPE: &[&[&str]] = &[
+            &[],
+            &["precision"],
+            &["varying"],
+            &["character"],
+            &["char"],
+            &["character", "varying"],
+            &["char", "varying"],
+            &["with", "time", "zone"],
+            &["without", "time", "zone"],
+        ];
+        REST_OF_TYPE.iter().find_map(|rest| {
+            let found = rest.iter().enumerate().all(|(i, w)| self.nth_kw(i, w))
+                && self
+                    .nth(rest.len())
+                    .is_some_and(|t| matches!(t.kind, TokenKind::String { .. }));
+            found.then_some(rest.len())
+        })
     }
 
     /// `a.b.c` / `t.*` の形の名前を読み、部分の数を返す。名前で始まらなければ 0。

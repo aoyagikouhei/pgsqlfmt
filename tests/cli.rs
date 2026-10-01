@@ -151,6 +151,25 @@ fn crlf_and_bom_files_keep_their_form() {
     assert_eq!(read(&file), format!("\u{FEFF}{crlf}"));
 }
 
+#[cfg(unix)]
+#[test]
+fn write_keeps_file_permissions_and_leaves_no_temp_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new();
+    let file = dir.file("a.sql", UNFORMATTED);
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = run(&["--write", "a.sql"], "", &dir.0);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(read(&file), FORMATTED);
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let names: Vec<_> = std::fs::read_dir(&dir.0)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["a.sql"]);
+}
+
 #[test]
 fn directories_are_searched_for_sql_files() {
     let dir = TempDir::new();

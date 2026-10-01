@@ -48,6 +48,7 @@ pub enum NodeKind {
     JoinCondition,
     WhereClause,
     GroupByClause,
+    /// `GROUPING SETS (...)` / `ROLLUP (...)` / `CUBE (...)`
     GroupingSets,
     HavingClause,
     WindowClause,

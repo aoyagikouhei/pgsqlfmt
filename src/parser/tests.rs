@@ -249,6 +249,35 @@ fn postfix_expressions() {
         expr("a COLLATE \"C\" < b"),
         "(BinaryExpr (CollateExpr (ColumnRef a) COLLATE \"C\") < (ColumnRef b))"
     );
+    // 単項の `-` は COLLATE / AT より強い（gram.y の UMINUS）
+    assert_eq!(
+        expr("-a COLLATE \"C\""),
+        "(CollateExpr (PrefixExpr - (ColumnRef a)) COLLATE \"C\")"
+    );
+    assert_eq!(
+        expr("-a AT TIME ZONE 'UTC'"),
+        "(AtTimeZoneExpr (PrefixExpr - (ColumnRef a)) AT TIME ZONE (Literal 'UTC'))"
+    );
+    assert_eq!(expr("a IN :list"), "(InExpr (ColumnRef a) IN :list)");
+}
+
+#[test]
+fn typed_literals() {
+    assert_eq!(expr("interval '1 day'"), "(TypedLiteral interval '1 day')");
+    assert_eq!(
+        expr("timestamp with time zone '2024-01-01'"),
+        "(TypedLiteral timestamp with time zone '2024-01-01')"
+    );
+    assert_eq!(
+        expr("double precision '1.5'"),
+        "(TypedLiteral double precision '1.5')"
+    );
+    assert_eq!(
+        expr("character varying 'x'"),
+        "(TypedLiteral character varying 'x')"
+    );
+    // 文字列が続かなければ型付きリテラルではない
+    assert_eq!(expr("timestamp"), "(ColumnRef timestamp)");
 }
 
 #[test]
@@ -528,7 +557,12 @@ fn other_select_clauses() {
     );
     assert_eq!(
         stmts("SELECT 1 GROUP BY GROUPING SETS ((a, b), ()), ROLLUP (c)"),
-        "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))) (GroupByClause GROUP BY (GroupingSets GROUPING SETS (ExprList ( (RowExpr (ExprList ( (ColumnRef a) , (ColumnRef b) ))) , (RowExpr (ExprList ( ))) ))) , (FuncCall ROLLUP (ArgList ( (ColumnRef c) ))))))"
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))) (GroupByClause GROUP BY (GroupingSets GROUPING SETS (ExprList ( (RowExpr (ExprList ( (ColumnRef a) , (ColumnRef b) ))) , (RowExpr (ExprList ( ))) ))) , (GroupingSets ROLLUP (ExprList ( (ColumnRef c) ))))))"
+    );
+    // ROLLUP / CUBE は括弧が続くときだけキーワード（`cube` という列もある）
+    assert_eq!(
+        stmts("SELECT 1 GROUP BY CUBE (a, b), cube"),
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))) (GroupByClause GROUP BY (GroupingSets CUBE (ExprList ( (ColumnRef a) , (ColumnRef b) ))) , (ColumnRef cube))))"
     );
     assert_eq!(
         stmts("SELECT 1 OFFSET 5 ROWS FETCH NEXT 3 ROWS ONLY"),
