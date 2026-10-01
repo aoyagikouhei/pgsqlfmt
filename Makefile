@@ -1,5 +1,6 @@
 COMPOSE := docker compose
-RUN := $(COMPOSE) run --rm dev
+# CI のように端末がない環境では `make check RUN_FLAGS=-T` とする
+RUN := $(COMPOSE) run --rm $(RUN_FLAGS) dev
 
 .PHONY: up down build shell test fmt clippy check psql db-reset logs snapshot-review image
 

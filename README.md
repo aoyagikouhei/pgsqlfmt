@@ -94,6 +94,9 @@ make down      # 停止
 
 ## テスト
 
+- GitHub Actions（`.github/workflows/ci.yml`）が push と PR ごとに、Docker Compose で `make check` を流します
+  （PostgreSQL での実機検証を含む）。あわせて配布用イメージをビルドし、実際に整形できるかを確かめます。
+  端末のない環境では `make check RUN_FLAGS=-T` とします。
 - 単体テストは各モジュール内（`src/lexer.rs` など）に置いています。
 - スナップショットテストは `tests/fixtures/<対象>/*.sql` を入力にし、結果を `tests/snapshots/` に保存します。
   ケースを増やすときは `.sql` を追加し、`make snapshot-review` で内容を確認してから承認します。

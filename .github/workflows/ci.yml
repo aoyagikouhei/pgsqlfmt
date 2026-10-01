@@ -1,0 +1,49 @@
+# push と PR ごとに、手元の `make check` と同じ検査（PostgreSQL での実機検証を含む）を Docker Compose で流す。
+# あわせて配布用イメージ（pre-commit のフックが使う）をビルドし、実際に整形できるかを確かめる。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # 開発コンテナのユーザーをランナーのユーザーと合わせる（作業ディレクトリをマウントして書き込むため）
+      - name: Set up .env
+        run: printf 'LOCAL_UID=%s\nLOCAL_GID=%s\n' "$(id -u)" "$(id -g)" > .env
+      - name: Build dev image
+        run: docker compose build dev
+      - name: fmt / clippy / test
+        run: make check RUN_FLAGS=-T
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build distribution image
+        run: make image
+      - name: Format with the image
+        run: |
+          out=$(printf 'select a, b from t where x = 1' | docker run --rm -i sql-formatter)
+          expected=$(printf 'SELECT\n    a\n  , b\nFROM t\nWHERE x = 1')
+          if [ "$out" != "$expected" ]; then
+            printf 'unexpected output:\n%s\n' "$out"
+            exit 1
+          fi
+          # 整形済みのファイルを --check に通す
+          printf '%s\n' "$expected" > formatted.sql
+          docker run --rm -v "$PWD:/src" sql-formatter --check formatted.sql
