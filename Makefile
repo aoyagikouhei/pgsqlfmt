@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 RUN := $(COMPOSE) run --rm dev
 
-.PHONY: up down build shell test fmt clippy check psql db-reset logs snapshot-review
+.PHONY: up down build shell test fmt clippy check psql db-reset logs snapshot-review image
 
 up: ## コンテナを起動
 	$(COMPOSE) up -d --build
@@ -34,6 +34,9 @@ db-reset: ## DB ボリュームを削除して作り直す
 	$(COMPOSE) rm -sfv db
 	-docker volume rm sql-formatter-rs_pg-data
 	$(COMPOSE) up -d db
+
+image: ## 配布用の sql-formatter イメージを作る
+	docker build -t sql-formatter .
 
 logs:
 	$(COMPOSE) logs -f

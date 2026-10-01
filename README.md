@@ -4,12 +4,35 @@ PostgreSQL の SQL / ストアドプロシージャ（PL/pgSQL）用フォーマ
 
 ## 使い方
 
-標準入力の SQL を整形して標準出力に書き出します。
+配布用のイメージ（ルートの `Dockerfile`、リリースビルドのバイナリだけを含む）を作って使います。
 
 ```sh
-docker compose run --rm -T dev cargo run -q < query.sql
-# 行幅を変える（既定は 80）
-docker compose run --rm -T dev cargo run -q -- --max-width 100 < query.sql
+make image                                            # sql-formatter イメージを作る
+docker run --rm -i sql-formatter < query.sql          # 標準入力を整形して標準出力へ
+docker run --rm -v "$PWD:/src" sql-formatter --check .    # 整形されていない *.sql の一覧（あれば終了コード 1）
+docker run --rm -v "$PWD:/src" sql-formatter --write db/  # ファイルを整形して上書き
+docker run --rm -i sql-formatter --max-width 100 < query.sql  # 行幅を変える（既定は 80）
+```
+
+- ファイルを指定しなければ標準入力を整形します（`-` も標準入力）。1 つのファイルだけなら整形結果を標準出力に書きます。
+- ディレクトリを指定すると、その下の `*.sql` を探します（`.` で始まるファイルやディレクトリは除きます）。
+- `--write` は変わったファイルだけを書き換え、`--check` はファイルを書き換えません。
+- 終了コード: 0 = 成功、1 = `--check` で整形されていないファイルがあった、2 = 引数や読み書きのエラー。
+
+開発中は `docker compose run --rm -T dev cargo run -q -- [オプション] [ファイル]` でも動かせます。
+
+### pre-commit
+
+Docker があれば、Rust を入れなくても pre-commit のフックとして使えます（このリポジトリの `Dockerfile` でイメージを作ります）。
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/aoyagikouhei/sql-formatter-rs
+    rev: main  # タグやコミットを指定する
+    hooks:
+      - id: sql-formatter        # 整形して書き換える
+      # - id: sql-formatter-check  # 確かめるだけ（CI 向け）
 ```
 
 整形のスタイル:
