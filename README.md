@@ -26,7 +26,9 @@ docker compose run --rm -T dev cargo run -q -- --max-width 100 < query.sql
   （`BEGIN ATOMIC ... END` も整形する。ほかの言語の本体はそのまま）
 - PL/pgSQL は DECLARE / BEGIN / EXCEPTION / END をブロックの深さに置き、文を 1 段深くする。
   IF / CASE / LOOP / WHILE / FOR / FOREACH の中はさらに 1 段深くする
-- 対応していない文（CREATE TABLE など）や解釈できない部分は、元のテキストのまま出す
+- CREATE TABLE の列と制約は 1 行ずつ行頭カンマで並べる。CREATE INDEX / CREATE [MATERIALIZED] VIEW /
+  ALTER TABLE / DROP / MERGE にも対応する
+- 対応していない文（CREATE SEQUENCE / GRANT など）や解釈できない部分は、元のテキストのまま出す
 
 
 ローカルに Rust を入れず、Docker だけで開発します。必要なのは Docker と Docker Compose です。
@@ -62,6 +64,7 @@ make down      # 停止
 - `tests/postgres_equivalence.rs` は、すべてのフィクスチャを整形の前と後で PostgreSQL（`db` コンテナ）に流し、
   結果が同じになることを確かめます（行幅 80 と 20）。SELECT / DML は `EXPLAIN (VERBOSE, COSTS OFF, GENERIC_PLAN)` の
   実行計画と実行結果を、CREATE FUNCTION は本体以外のカタログ上の定義を、DO / 関数の呼び出しは NOTICE を含む出力を比べます。
+  最後に public スキーマのカタログ（列・型・既定値・制約・インデックス・ビューの定義）も比べるので、DDL の違いも見つけられます。
   スキーマは `tests/postgres/schema.sql`、エラーなく実行できるべき検証用の SQL は `tests/fixtures/postgres/` にあります。
   全体を 1 つのトランザクションで流して最後に ROLLBACK するので、DB には何も残りません。
   環境変数 `PGHOST` がない環境（dev コンテナの外）では何もしません。

@@ -500,8 +500,8 @@ fn with_clause() {
     );
     // 対応していない文の CTE 本体はそのまま保持する
     assert_eq!(
-        stmts("WITH m AS (MERGE INTO t USING s ON true DO NOTHING) SELECT 1"),
-        "(SelectStmt (WithClause WITH (Cte m AS (SubqueryExpr ( (RawStatement MERGE INTO t USING s ON true DO NOTHING) )))) (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)))))"
+        stmts("WITH m AS (NOTIFY c) SELECT 1"),
+        "(SelectStmt (WithClause WITH (Cte m AS (SubqueryExpr ( (RawStatement NOTIFY c) )))) (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)))))"
     );
 }
 
@@ -632,8 +632,8 @@ fn incomplete_dml_is_kept() {
 #[test]
 fn statements_and_raw_statements() {
     assert_eq!(
-        stmts("CREATE TABLE t (id int); SELECT 1;;"),
-        "(RawStatement CREATE TABLE t ( id int )) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ; ;"
+        stmts("CREATE SEQUENCE s START 1; SELECT 1;;"),
+        "(RawStatement CREATE SEQUENCE s START 1) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ; ;"
     );
     assert_eq!(stmts(""), "");
 }
@@ -710,8 +710,8 @@ fn stray_tokens_become_errors() {
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) (Error ) FROM t) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 2)))))"
     );
     assert_eq!(
-        stmts("WITH x AS (SELECT 1) MERGE INTO t USING x ON true DO NOTHING"),
-        "(SelectStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) )))) (Error MERGE INTO t USING x ON true DO NOTHING))"
+        stmts("WITH x AS (SELECT 1) NOTIFY c"),
+        "(SelectStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ))) (Error NOTIFY c)))"
     );
 }
 
@@ -764,7 +764,7 @@ fn plpgsql_assignments_and_sql() {
         pl(
             "BEGIN x := 1; y = 2; r.f[1] := 3; SELECT a INTO STRICT x, y FROM t; UPDATE t SET a = 1 RETURNING a INTO x; CREATE TEMP TABLE z (i int); END"
         ),
-        "(PlBlock BEGIN (PlAssign (ColumnRef x) := (Literal 1) ;) (PlAssign (ColumnRef y) = (Literal 2) ;) (PlAssign (SubscriptExpr (ColumnRef r . f) [ (Literal 1) ]) := (Literal 3) ;) (PlSqlStmt (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (IntoClause INTO STRICT x , y) (FromClause FROM (TableRef t)))) ;) (PlSqlStmt (UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))) (ReturningClause RETURNING (TargetItem (ColumnRef a))) (IntoClause INTO x)) ;) (PlSqlStmt (RawStatement CREATE TEMP TABLE z ( i int )) ;) END)"
+        "(PlBlock BEGIN (PlAssign (ColumnRef x) := (Literal 1) ;) (PlAssign (ColumnRef y) = (Literal 2) ;) (PlAssign (SubscriptExpr (ColumnRef r . f) [ (Literal 1) ]) := (Literal 3) ;) (PlSqlStmt (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (IntoClause INTO STRICT x , y) (FromClause FROM (TableRef t)))) ;) (PlSqlStmt (UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))) (ReturningClause RETURNING (TargetItem (ColumnRef a))) (IntoClause INTO x)) ;) (PlSqlStmt (CreateTableStmt CREATE TEMP TABLE z (TableElementList ( (ColumnDef i (TypeName int)) ))) ;) END)"
     );
     // INTO は問い合わせの最後にも書ける
     assert_eq!(
@@ -924,4 +924,85 @@ fn do_and_call_statements() {
     );
     // 閉じていない本体は解析しない
     assert_eq!(stmts("DO $$ BEGIN"), "(DoStmt DO $$ BEGIN)");
+}
+
+// ---- DDL・MERGE ----
+
+#[test]
+fn create_table_statements() {
+    assert_eq!(
+        stmts(
+            "CREATE TEMP TABLE IF NOT EXISTS s.t (id bigint GENERATED ALWAYS AS IDENTITY (START WITH 10) PRIMARY KEY, key text NOT NULL DEFAULT 'x' CHECK (key <> ''), p bigint REFERENCES parent (id) ON DELETE SET NULL, g int GENERATED ALWAYS AS (id * 2) STORED, CONSTRAINT u UNIQUE (key, p), LIKE other INCLUDING ALL) PARTITION BY RANGE (id) WITH (fillfactor = 70)"
+        ),
+        "(CreateTableStmt CREATE TEMP TABLE IF NOT EXISTS s . t (TableElementList ( (ColumnDef id (TypeName bigint) GENERATED ALWAYS AS IDENTITY (ExprList ( START WITH 10 )) PRIMARY KEY) , (ColumnDef key (TypeName text) NOT NULL DEFAULT (Literal 'x') CHECK (ParenExpr ( (BinaryExpr (ColumnRef key) <> (Literal '')) ))) , (ColumnDef p (TypeName bigint) REFERENCES parent (ExprList ( id )) ON DELETE SET NULL) , (ColumnDef g (TypeName int) GENERATED ALWAYS AS (ParenExpr ( (BinaryExpr (ColumnRef id) * (Literal 2)) )) STORED) , (TableConstraint CONSTRAINT u UNIQUE (ExprList ( key , p ))) , (TableConstraint LIKE other INCLUDING ALL) )) PARTITION BY RANGE (ExprList ( id )) WITH (ExprList ( fillfactor = 70 )))"
+    );
+    // CREATE TABLE ... AS の問い合わせは WITH [NO] DATA の手前で終わる
+    assert_eq!(
+        stmts("CREATE TABLE t2 AS SELECT a FROM t WITH NO DATA"),
+        "(CreateTableStmt CREATE TABLE t2 AS (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (FromClause FROM (TableRef t)))) WITH NO DATA)"
+    );
+    // パーティションにも列の制約の並びを書ける
+    assert_eq!(
+        stmts("CREATE TABLE p2 PARTITION OF p (CONSTRAINT c CHECK (x > 0)) FOR VALUES IN (1)"),
+        "(CreateTableStmt CREATE TABLE p2 PARTITION OF p (TableElementList ( (TableConstraint CONSTRAINT c CHECK (ParenExpr ( (BinaryExpr (ColumnRef x) > (Literal 0)) ))) )) FOR VALUES IN (ExprList ( 1 )))"
+    );
+    assert_eq!(
+        stmts("CREATE TABLE p1 PARTITION OF p FOR VALUES FROM (1) TO (10)"),
+        "(CreateTableStmt CREATE TABLE p1 PARTITION OF p FOR VALUES FROM (ExprList ( 1 )) TO (ExprList ( 10 )))"
+    );
+}
+
+#[test]
+fn create_index_and_view_statements() {
+    assert_eq!(
+        stmts(
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS i ON ONLY t USING btree (a, lower(b) text_pattern_ops DESC NULLS LAST) INCLUDE (c) WHERE a > 0"
+        ),
+        "(CreateIndexStmt CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS i ON ONLY t USING btree (ExprList ( (ColumnRef a) , (FuncCall lower (ArgList ( (ColumnRef b) ))) text_pattern_ops DESC NULLS LAST )) INCLUDE (ExprList ( c )) (WhereClause WHERE (BinaryExpr (ColumnRef a) > (Literal 0))))"
+    );
+    assert_eq!(
+        stmts("CREATE INDEX ON t (a)"),
+        "(CreateIndexStmt CREATE INDEX ON t (ExprList ( (ColumnRef a) )))"
+    );
+    assert_eq!(
+        stmts("CREATE OR REPLACE TEMP VIEW v (x) AS SELECT 1 WITH CASCADED CHECK OPTION"),
+        "(CreateViewStmt CREATE OR REPLACE TEMP VIEW v (ExprList ( x )) AS (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) WITH CASCADED CHECK OPTION)"
+    );
+    assert_eq!(
+        stmts("CREATE MATERIALIZED VIEW IF NOT EXISTS mv AS SELECT 1 WITH DATA"),
+        "(CreateViewStmt CREATE MATERIALIZED VIEW IF NOT EXISTS mv AS (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) WITH DATA)"
+    );
+}
+
+#[test]
+fn alter_and_drop_statements() {
+    assert_eq!(
+        stmts(
+            "ALTER TABLE IF EXISTS ONLY t ADD COLUMN IF NOT EXISTS c int NOT NULL, ADD d text, ADD PRIMARY KEY (c), DROP COLUMN IF EXISTS e CASCADE, DROP f, DROP CONSTRAINT IF EXISTS k, ALTER COLUMN c TYPE bigint USING c::bigint, ALTER c SET DEFAULT 1, ALTER c DROP NOT NULL, RENAME COLUMN c TO d, RENAME TO u, OWNER TO bob"
+        ),
+        "(AlterTableStmt ALTER TABLE IF EXISTS ONLY t (AlterTableAction ADD COLUMN IF NOT EXISTS c (TypeName int) NOT NULL) , (AlterTableAction ADD d (TypeName text)) , (AlterTableAction ADD PRIMARY KEY (ExprList ( c ))) , (AlterTableAction DROP COLUMN IF EXISTS e CASCADE) , (AlterTableAction DROP f) , (AlterTableAction DROP CONSTRAINT IF EXISTS k) , (AlterTableAction ALTER COLUMN c TYPE (TypeName bigint) USING (CastExpr (ColumnRef c) :: (TypeName bigint))) , (AlterTableAction ALTER c SET DEFAULT (Literal 1)) , (AlterTableAction ALTER c DROP NOT NULL) , (AlterTableAction RENAME COLUMN c TO d) , (AlterTableAction RENAME TO u) , (AlterTableAction OWNER TO bob))"
+    );
+    assert_eq!(
+        stmts(
+            "DROP MATERIALIZED VIEW IF EXISTS a, s.b CASCADE; DROP FUNCTION f(int, text); DROP TRIGGER tr ON t"
+        ),
+        "(DropStmt DROP MATERIALIZED VIEW IF EXISTS a , s . b CASCADE) ; (DropStmt DROP FUNCTION f (ExprList ( int , text ))) ; (DropStmt DROP TRIGGER tr ON t)"
+    );
+}
+
+#[test]
+fn merge_statements() {
+    assert_eq!(
+        stmts(
+            "WITH x AS (SELECT 1) MERGE INTO t AS d USING s ON s.id = d.id WHEN MATCHED AND s.v = 0 THEN DELETE WHEN MATCHED THEN UPDATE SET v = s.v, w = 1 WHEN NOT MATCHED BY TARGET THEN INSERT (id, v) VALUES (s.id, s.v) WHEN NOT MATCHED BY SOURCE THEN DO NOTHING RETURNING *"
+        ),
+        "(MergeStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) )))) MERGE INTO (TableRef t (Alias AS d)) USING (TableRef s) (JoinCondition ON (BinaryExpr (ColumnRef s . id) = (ColumnRef d . id))) (MergeWhenClause WHEN MATCHED AND (BinaryExpr (ColumnRef s . v) = (Literal 0)) THEN DELETE) (MergeWhenClause WHEN MATCHED THEN UPDATE (SetClause SET (SetItem (ColumnRef v) = (ColumnRef s . v)) , (SetItem (ColumnRef w) = (Literal 1)))) (MergeWhenClause WHEN NOT MATCHED BY TARGET THEN INSERT (ExprList ( (ColumnRef id) , (ColumnRef v) )) (ValuesClause VALUES (ExprList ( (ColumnRef s . id) , (ColumnRef s . v) )))) (MergeWhenClause WHEN NOT MATCHED BY SOURCE THEN DO NOTHING) (ReturningClause RETURNING (TargetItem (ColumnRef *))))"
+    );
+    // 別名の USING は別名にしない。INSERT DEFAULT VALUES
+    assert_eq!(
+        stmts(
+            "MERGE INTO t USING (SELECT 1 AS id) s ON true WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
+        ),
+        "(MergeStmt MERGE INTO (TableRef t) USING (DerivedTable (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1) (Alias AS id))))) )) (Alias s)) (JoinCondition ON (Literal true)) (MergeWhenClause WHEN NOT MATCHED THEN INSERT DEFAULT VALUES))"
+    );
 }

@@ -27,11 +27,21 @@ impl<'a> Formatter<'a> {
     }
 
     /// `( item, item, ... )`
+    /// 項目が 1 つだけなら折り返さない（`lower(\n    name\n)` のようにしても読みやすくならない。
+    /// 中の式が長ければ、その式のほうが折り返す）
     pub(super) fn paren_list(&mut self, node: &Node<'a>) {
-        if self.fits(|f| f.inline(node)) {
+        let single_item = !children(node)
+            .iter()
+            .any(|e| as_token(e).is_some_and(|t| t.kind == TokenKind::Comma));
+        if single_item || self.fits(|f| f.inline(node)) {
             self.inline(node);
-            return;
+        } else {
+            self.paren_list_broken(node);
         }
+    }
+
+    /// `(` の後ろで改行し、項目を 1 行ずつ行頭カンマで並べて、閉じ括弧を独立した行に置く
+    pub(super) fn paren_list_broken(&mut self, node: &Node<'a>) {
         let base = self.w.indent();
         let elements = children(node);
         let open = elements

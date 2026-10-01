@@ -1,0 +1,99 @@
+---
+source: tests/formatter_snapshots.rs
+expression: format(&src)
+input_file: tests/fixtures/postgres/ddl.sql
+---
+-- 実機検証用。DDL と MERGE。整形の前後でカタログ上の定義と結果が同じになること。
+CREATE TABLE products (
+    id bigint GENERATED ALWAYS AS IDENTITY (START WITH 100) PRIMARY KEY
+  , sku text NOT NULL UNIQUE
+  , name text COLLATE "C" NOT NULL DEFAULT ''
+  , price numeric(12, 2) NOT NULL DEFAULT 0 CHECK (price >= 0)
+  , tax numeric GENERATED ALWAYS AS (price * 0.1) STORED
+  , category text CHECK (category IN ('food', 'tool'))
+  , created_on date DEFAULT '2026-01-01'
+  , CONSTRAINT products_name_check CHECK (length(name) < 100)
+);
+CREATE UNLOGGED TABLE IF NOT EXISTS product_tags (
+    product_id bigint REFERENCES products (id) ON DELETE CASCADE
+  , tag text
+  , PRIMARY KEY (product_id, tag)
+) WITH (fillfactor = 90);
+CREATE TABLE events (
+    id bigint NOT NULL
+  , happened_on date NOT NULL
+  , payload jsonb
+) PARTITION BY RANGE (happened_on);
+CREATE TABLE events_2026 PARTITION OF events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
+CREATE TABLE product_copy (
+    LIKE products INCLUDING DEFAULTS INCLUDING CONSTRAINTS
+);
+CREATE INDEX products_name_idx ON products (lower(name) text_pattern_ops DESC NULLS LAST) INCLUDE (price)
+WHERE price > 0;
+CREATE UNIQUE INDEX IF NOT EXISTS product_tags_tag_idx ON product_tags USING btree (
+    tag
+  , product_id
+);
+CREATE VIEW expensive_products (id, name) AS
+SELECT
+    id
+  , name
+FROM products
+WHERE price > 1000
+WITH LOCAL CHECK OPTION;
+CREATE MATERIALIZED VIEW product_counts AS
+SELECT
+    category
+  , count(*) AS n
+FROM products
+GROUP BY category
+WITH NO DATA;
+CREATE TABLE cheap AS
+SELECT
+    id
+  , sku
+FROM products
+WHERE price < 10
+WITH NO DATA;
+ALTER TABLE products
+    ADD COLUMN stock int NOT NULL DEFAULT 0
+  , ADD CONSTRAINT products_stock_check CHECK (stock >= 0) NOT VALID
+  , ALTER COLUMN category SET DEFAULT 'food'
+  , ALTER COLUMN created_on TYPE timestamp USING created_on::timestamp;
+ALTER TABLE products RENAME COLUMN sku TO code;
+ALTER TABLE product_tags RENAME TO tags;
+INSERT INTO products (code, name, price, category)
+VALUES
+    ('a', 'apple', 100, 'food')
+  , ('h', 'hammer', 2000, 'tool');
+MERGE INTO products AS p
+USING (
+    VALUES
+        ('a', 150::numeric)
+      , ('b', 5::numeric)
+) AS s (code, price)
+    ON s.code = p.code
+WHEN MATCHED AND s.price > 1000 THEN
+    DELETE
+WHEN MATCHED THEN
+    UPDATE SET
+        price = s.price
+      , stock = p.stock + 1
+WHEN NOT MATCHED THEN
+    INSERT (code, name, price)
+    VALUES (s.code, 'new', s.price)
+RETURNING
+    merge_action()
+  , p.code
+  , p.price;
+SELECT
+    code
+  , name
+  , price
+  , tax
+  , stock
+  , category
+FROM products
+ORDER BY code;
+DROP INDEX IF EXISTS products_name_idx;
+DROP VIEW IF EXISTS expensive_products CASCADE;

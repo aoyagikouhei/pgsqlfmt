@@ -5,8 +5,8 @@ input_file: tests/fixtures/parser/mixed_statements.sql
 ---
 -- 対応していない文はそのまま残る
 CREATE TABLE users (
-  id bigint PRIMARY KEY,
-  name text NOT NULL
+    id bigint PRIMARY KEY
+  , name text NOT NULL
 );
 
 INSERT INTO users (id, name)

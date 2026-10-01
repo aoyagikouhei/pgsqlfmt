@@ -6,6 +6,8 @@
 //! - CREATE FUNCTION / PROCEDURE: 作成できるかと、本体のテキスト以外のカタログ上の定義
 //!   （PL/pgSQL の本体は作成時に構文が検査され、呼び出しの結果は後続の文で比べる）
 //! - それ以外（DO / CALL など）: 実行した結果（NOTICE やエラーを含む）
+//! - 最後に public スキーマのカタログ（列・型・既定値・制約・インデックス・ビューの定義）を比べる。
+//!   DDL の意味の違いは実行結果（`CREATE TABLE` など）には出ないので、ここで確かめる
 //!
 //! psql は `ON_ERROR_ROLLBACK=on` で動かすので、エラーになった文があっても続きの文を比べられる。
 //! 環境変数 `PGHOST` がなければ（dev コンテナの外では）このテストは何もしない。
@@ -117,9 +119,30 @@ fn script(src: &str) -> String {
             _ => out.push_str(&format!("{text}\n;\n")),
         }
     }
+    out.push_str(CATALOG_SNAPSHOT);
     out.push_str("ROLLBACK;\n");
     out
 }
+
+/// public スキーマの定義。いずれも PostgreSQL が正規化した形で出すので、書き方の違いは出ない
+const CATALOG_SNAPSHOT: &str = "\
+\\echo '--- カタログ'
+SELECT c.relname, c.relkind, c.relpersistence, a.attnum, a.attname, format_type(a.atttypid, a.atttypmod),
+       a.attnotnull, pg_get_expr(d.adbin, d.adrelid), a.attidentity, a.attgenerated, co.collname
+FROM pg_class c
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
+LEFT JOIN pg_collation co ON co.oid = a.attcollation AND a.attcollation <> 100
+WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+ORDER BY c.relname, a.attnum;
+SELECT conrelid::regclass::text, conname, contype, pg_get_constraintdef(oid), convalidated
+FROM pg_constraint WHERE connamespace = 'public'::regnamespace ORDER BY 1, 2;
+SELECT indexrelid::regclass::text, pg_get_indexdef(indexrelid)
+FROM pg_index WHERE indrelid::regclass::text NOT LIKE 'pg\\_%' ORDER BY 1;
+SELECT c.relname, c.relkind, pg_get_viewdef(c.oid), c.reloptions, pg_get_partkeydef(c.oid),
+       pg_get_expr(c.relpartbound, c.oid)
+FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace ORDER BY 1;
+";
 
 /// psql でスクリプトを流し、出力（エラーや NOTICE を含む）を返す
 fn run_psql(script: &str) -> String {
@@ -151,8 +174,16 @@ fn run_psql(script: &str) -> String {
                 Some(rest) => rest.split_once(": ").map_or(rest, |(_, msg)| msg),
                 None => line,
             };
-            line.split_once(" at character ")
-                .map_or(line, |(msg, _)| msg)
+            let line = line
+                .split_once(" at character ")
+                .map_or(line, |(msg, _)| msg);
+            // エラーメッセージは入力のトークンを引用する（`syntax error at or near "rename"`）ので、
+            // キーワードを大文字にしただけで変わる。大文字小文字を区別せずに比べる
+            if line.starts_with("ERROR:") {
+                line.to_lowercase()
+            } else {
+                line.to_string()
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -177,11 +208,30 @@ fn assert_equivalent(name: &str, src: &str, max_width: usize) -> String {
 
     let original = run_psql(&script(src));
     let after = run_psql(&script(&formatted));
-    assert_eq!(
-        after, original,
-        "{name}（行幅 {max_width}）: 整形の前後で PostgreSQL の結果が違う\n--- 整形後 ---\n{formatted}"
-    );
+    if after != original {
+        panic!(
+            "{name}（行幅 {max_width}）: 整形の前後で PostgreSQL の結果が違う\n{}\n--- 整形後 ---\n{formatted}",
+            first_difference(&original, &after)
+        );
+    }
     original
+}
+
+/// 最初に違う行と、その前後の数行
+fn first_difference(expected: &str, actual: &str) -> String {
+    let expected: Vec<_> = expected.lines().collect();
+    let actual: Vec<_> = actual.lines().collect();
+    let at = (0..expected.len().max(actual.len()))
+        .find(|&i| expected.get(i) != actual.get(i))
+        .unwrap_or(0);
+    let window = |lines: &[&str]| {
+        lines[at.saturating_sub(5).min(lines.len())..(at + 5).min(lines.len())].join("\n")
+    };
+    format!(
+        "--- 整形前の出力（{at} 行目付近）---\n{}\n--- 整形後の出力 ---\n{}",
+        window(&expected),
+        window(&actual)
+    )
 }
 
 #[test]

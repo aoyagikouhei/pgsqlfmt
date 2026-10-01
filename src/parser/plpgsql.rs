@@ -28,7 +28,6 @@ const RAW_SQL_COMMANDS: &[&str] = &[
     "listen",
     "load",
     "lock",
-    "merge",
     "notify",
     "prepare",
     "refresh",
@@ -238,11 +237,15 @@ impl Parser<'_> {
                 })
             }
             "call" => self.pl_sql(Self::call_stmt),
-            _ if self.at_query_start(0) || self.at_any_kw(&["insert", "update", "delete"]) => self
-                .pl_sql(|p| {
+            _ if self.at_query_start(0)
+                || self.at_any_kw(&["insert", "update", "delete", "merge"]) =>
+            {
+                self.pl_sql(|p| {
                     p.statement_body();
-                }),
-            _ if self.at_any_kw(RAW_SQL_COMMANDS) => self.pl_sql(Self::raw_statement),
+                })
+            }
+            // CREATE TABLE なども、外側の SQL と同じように解析する（対応していない文はそのまま）
+            _ if self.at_any_kw(RAW_SQL_COMMANDS) => self.pl_sql(Self::statement),
             _ if self.at_name() => self.pl_assignment(),
             _ => {}
         }

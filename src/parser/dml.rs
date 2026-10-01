@@ -8,7 +8,7 @@ impl Parser<'_> {
     /// SELECT / INSERT / UPDATE / DELETE（WITH 付きを含む）を 1 つ読む。
     /// どれでもなければ何も取り込まずに false を返す。
     pub(super) fn statement_body(&mut self) -> bool {
-        if !self.at_query_start(0) && !self.at_any_kw(&["insert", "update", "delete"]) {
+        if !self.at_query_start(0) && !self.at_any_kw(&["insert", "update", "delete", "merge"]) {
             return false;
         }
         let cp = self.checkpoint();
@@ -24,6 +24,9 @@ impl Parser<'_> {
         } else if self.at_kw("delete") {
             self.delete_rest();
             NodeKind::DeleteStmt
+        } else if self.at_kw("merge") {
+            self.merge_rest();
+            NodeKind::MergeStmt
         } else {
             self.select_rest();
             NodeKind::SelectStmt
@@ -140,6 +143,81 @@ impl Parser<'_> {
         if self.at_kw("into") {
             self.result_into_clause();
         }
+    }
+
+    /// `MERGE INTO target [[AS] alias] USING source ON cond WHEN ... [RETURNING ...]`
+    fn merge_rest(&mut self) {
+        self.bump_kw();
+        self.eat_kw("into");
+        self.dml_target(&[]);
+        if self.eat_kw("using") {
+            self.table_expr();
+        }
+        if self.at_kw("on") {
+            self.start_node(NodeKind::JoinCondition);
+            self.bump_kw();
+            self.expr();
+            self.finish_node();
+        }
+        // WHEN 句の中の SET や条件は、次の WHEN の手前で終わる
+        self.with_stops(&["when"], |p| {
+            while p.at_kw("when") {
+                p.merge_when_clause();
+            }
+        });
+        if self.at_kw("returning") {
+            self.returning_clause();
+        }
+        if self.at_kw("into") {
+            self.result_into_clause();
+        }
+    }
+
+    /// `WHEN [NOT] MATCHED [BY SOURCE | BY TARGET] [AND cond] THEN
+    ///  {UPDATE SET ... | DELETE | DO NOTHING | INSERT [(cols)] [OVERRIDING ...] {VALUES (...) | DEFAULT VALUES}}`
+    fn merge_when_clause(&mut self) {
+        self.start_node(NodeKind::MergeWhenClause);
+        self.bump_kw();
+        self.eat_kw("not");
+        self.eat_kw("matched");
+        if self.eat_kw("by") && !self.eat_kw("source") {
+            self.eat_kw("target");
+        }
+        if self.eat_kw("and") {
+            self.expr();
+        }
+        self.eat_kw("then");
+        if self.eat_kw("update") {
+            if self.at_kw("set") {
+                self.set_clause();
+            }
+        } else if self.eat_kw("do") {
+            self.eat_kw("nothing");
+        } else if self.eat_kw("insert") {
+            if self.at(TokenKind::LParen) {
+                self.expr_list();
+            }
+            if self.eat_kw("overriding") {
+                if !self.eat_kw("system") {
+                    self.eat_kw("user");
+                }
+                self.eat_kw("value");
+            }
+            if self.at_kw("default") && self.nth_kw(1, "values") {
+                self.bump_kw();
+                self.bump_kw();
+            } else if self.at_kw("values") {
+                self.start_node(NodeKind::ValuesClause);
+                self.bump_kw();
+                if self.at(TokenKind::LParen) {
+                    self.expr_list();
+                }
+                self.finish_node();
+            }
+        } else {
+            self.eat_kw("delete");
+        }
+        self.finish_node();
     }
 
     /// UPDATE / DELETE の対象の表。`not_bare` は AS なしの別名にしないキーワード。

@@ -7,6 +7,7 @@
 //! 空白・コメントは、次の意味のあるトークンを取り込む時点で開いているノードに入る。
 //! ノードを開くときは先に空白・コメントを親に流すので、ノードは必ず意味のあるトークンから始まる。
 
+mod ddl;
 mod dml;
 mod expr;
 mod function;
@@ -322,6 +323,16 @@ impl<'a> Parser<'a> {
             self.do_stmt();
         } else if self.at_kw("call") {
             self.call_stmt();
+        } else if self.at_create_table() {
+            self.create_table_stmt();
+        } else if self.at_create_index() {
+            self.create_index_stmt();
+        } else if self.at_create_view() {
+            self.create_view_stmt();
+        } else if self.at_kw("alter") && self.nth_kw(1, "table") {
+            self.alter_table_stmt();
+        } else if self.at_kw("drop") {
+            self.drop_stmt();
         } else if !self.statement_body() {
             self.raw_statement();
         }

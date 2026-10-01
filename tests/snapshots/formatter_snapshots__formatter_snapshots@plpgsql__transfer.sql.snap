@@ -82,7 +82,9 @@ BEGIN
     OPEN c_log(p_from);
     FETCH NEXT FROM c_log INTO v_row;
     CLOSE c_log;
-    create temp table tmp (id int) on commit drop;
+    CREATE TEMP TABLE tmp (
+        id int
+    ) ON COMMIT DROP;
     ASSERT v_balance >= 0, 'negative';
     RETURN QUERY
         SELECT 1;

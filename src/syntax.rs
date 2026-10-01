@@ -72,6 +72,25 @@ pub enum NodeKind {
     UsingClause,
     ReturningClause,
 
+    // ---- MERGE ----
+    MergeStmt,
+    /// `WHEN [NOT] MATCHED [BY ...] [AND cond] THEN action`
+    MergeWhenClause,
+
+    // ---- DDL ----
+    CreateTableStmt,
+    /// CREATE TABLE の `(列, 制約, ...)`
+    TableElementList,
+    ColumnDef,
+    /// 表制約（`LIKE source` を含む）
+    TableConstraint,
+    CreateIndexStmt,
+    /// `CREATE [MATERIALIZED] VIEW`
+    CreateViewStmt,
+    AlterTableStmt,
+    AlterTableAction,
+    DropStmt,
+
     // ---- 関数・プロシージャ ----
     /// `CREATE [OR REPLACE] FUNCTION / PROCEDURE`
     CreateFunctionStmt,

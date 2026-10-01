@@ -469,18 +469,21 @@ Root
             Ident "c_log"
             Semicolon ";"
           PlSqlStmt
-            RawStatement
-              Ident "create"
-              Ident "temp"
-              Ident "table"
+            CreateTableStmt
+              Keyword "create"
+              Keyword "temp"
+              Keyword "table"
               Ident "tmp"
-              LParen "("
-              Ident "id"
-              Ident "int"
-              RParen ")"
-              Ident "on"
-              Ident "commit"
-              Ident "drop"
+              TableElementList
+                LParen "("
+                ColumnDef
+                  Ident "id"
+                  TypeName
+                    Ident "int"
+                RParen ")"
+              Keyword "on"
+              Keyword "commit"
+              Keyword "drop"
             Semicolon ";"
           PlAssert
             Keyword "assert"

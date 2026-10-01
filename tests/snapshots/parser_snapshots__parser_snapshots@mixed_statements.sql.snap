@@ -1,25 +1,30 @@
 ---
 source: tests/parser_snapshots.rs
-expression: tree.debug_tree()
+expression: debug_tree(path)
 input_file: tests/fixtures/parser/mixed_statements.sql
 ---
 Root
   LineComment "-- 対応していない文はそのまま残る"
-  RawStatement
-    Ident "CREATE"
-    Ident "TABLE"
+  CreateTableStmt
+    Keyword "CREATE"
+    Keyword "TABLE"
     Ident "users"
-    LParen "("
-    Ident "id"
-    Ident "bigint"
-    Ident "PRIMARY"
-    Ident "KEY"
-    Comma ","
-    Ident "name"
-    Ident "text"
-    Ident "NOT"
-    Ident "NULL"
-    RParen ")"
+    TableElementList
+      LParen "("
+      ColumnDef
+        Ident "id"
+        TypeName
+          Ident "bigint"
+        Keyword "PRIMARY"
+        Keyword "KEY"
+      Comma ","
+      ColumnDef
+        Ident "name"
+        TypeName
+          Ident "text"
+        Keyword "NOT"
+        Keyword "NULL"
+      RParen ")"
   Semicolon ";"
   InsertStmt
     Keyword "INSERT"

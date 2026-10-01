@@ -9,6 +9,7 @@
 //!
 //! `RawStatement` / `Error` は元のテキストのまま出す。
 
+mod ddl;
 mod plpgsql;
 mod stmt;
 #[cfg(test)]
@@ -167,6 +168,13 @@ impl<'a> Formatter<'a> {
             NodeKind::InsertStmt => self.insert_stmt(stmt, base),
             NodeKind::UpdateStmt | NodeKind::DeleteStmt => self.update_or_delete(stmt, base),
             NodeKind::CreateFunctionStmt => self.create_function(stmt, base),
+            NodeKind::CreateTableStmt | NodeKind::CreateViewStmt | NodeKind::CreateIndexStmt => {
+                self.create_object(stmt, base)
+            }
+            NodeKind::AlterTableStmt => self.list_clause(stmt, base),
+            // `DROP FUNCTION f(int, text)`
+            NodeKind::DropStmt => self.inline_glued(stmt, |e| is_node(e, NodeKind::ExprList)),
+            NodeKind::MergeStmt => self.merge_stmt(stmt, base),
             NodeKind::DoStmt => self.do_stmt(stmt, base),
             _ => self.node(stmt),
         }
@@ -383,6 +391,15 @@ fn is_statement(kind: NodeKind) -> bool {
             | NodeKind::InsertStmt
             | NodeKind::UpdateStmt
             | NodeKind::DeleteStmt
+            | NodeKind::MergeStmt
+            | NodeKind::CreateTableStmt
+            | NodeKind::CreateIndexStmt
+            | NodeKind::CreateViewStmt
+            | NodeKind::AlterTableStmt
+            | NodeKind::DropStmt
+            | NodeKind::CreateFunctionStmt
+            | NodeKind::DoStmt
+            | NodeKind::CallStmt
             | NodeKind::RawStatement
     )
 }

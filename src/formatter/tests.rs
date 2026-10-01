@@ -408,8 +408,8 @@ fn blank_lines_around_comments_are_kept() {
 #[test]
 fn raw_statements_are_kept_verbatim() {
     check(
-        "create table t (\n  id int -- key\n);\nselect 1",
-        "create table t (\n  id int -- key\n);\nSELECT 1\n",
+        "create sequence s\n  start 1 -- 開始\n;\nselect 1",
+        "create sequence s\n  start 1 -- 開始\n;\nSELECT 1\n",
     );
 }
 
@@ -702,10 +702,13 @@ CALL p(1)
 #[test]
 fn default_width_is_80() {
     // ちょうど 80 桁は折り返さず、81 桁で折り返す
-    let fits = format!("SELECT f({})\n", "a".repeat(80 - "SELECT f()".len()));
+    let fits = format!("SELECT f(1, {})\n", "a".repeat(80 - "SELECT f(1, )".len()));
     assert_eq!(format(&fits), fits);
-    let long = format!("SELECT f({})", "a".repeat(81 - "SELECT f()".len()));
+    let long = format!("SELECT f(1, {})", "a".repeat(81 - "SELECT f(1, )".len()));
     assert!(format(&long).starts_with("SELECT f(\n"));
+    // 項目が 1 つなら、行幅を超えても折り返さない
+    let single = format!("SELECT f({})", "a".repeat(81 - "SELECT f()".len()));
+    assert_eq!(format(&single), format!("{single}\n"));
 }
 
 #[test]
@@ -910,15 +913,85 @@ SELECT f(
 
 #[test]
 fn wide_characters_count_as_two_columns() {
-    // 全角 10 文字は 20 桁なので 32 桁（文字数で数えると 22 桁）
+    // 全角 10 文字は 20 桁なので 35 桁（文字数で数えると 25 桁）
     check_width(
-        32,
-        "select f('あいうえおかきくけこ')",
-        "SELECT f('あいうえおかきくけこ')\n",
+        35,
+        "select f(1, 'あいうえおかきくけこ')",
+        "SELECT f(1, 'あいうえおかきくけこ')\n",
     );
     check_width(
-        31,
-        "select f('あいうえおかきくけこ')",
-        "SELECT f(\n    'あいうえおかきくけこ'\n)\n",
+        34,
+        "select f(1, 'あいうえおかきくけこ')",
+        "SELECT f(\n    1\n  , 'あいうえおかきくけこ'\n)\n",
+    );
+}
+
+// ---- DDL・MERGE ----
+
+#[test]
+fn create_table_layout() {
+    // 列が 1 つでも 1 行ずつ
+    check(
+        "create table t (id int)",
+        "CREATE TABLE t (\n    id int\n)\n",
+    );
+    check(
+        "create table if not exists t (id bigint primary key, name text not null default '', constraint c check (id > 0)) with (fillfactor = 70)",
+        "\
+CREATE TABLE IF NOT EXISTS t (
+    id bigint PRIMARY KEY
+  , name text NOT NULL DEFAULT ''
+  , CONSTRAINT c CHECK (id > 0)
+) WITH (fillfactor = 70)
+",
+    );
+    check(
+        "create table t2 as select a, b from t with no data",
+        "CREATE TABLE t2 AS\nSELECT\n    a\n  , b\nFROM t\nWITH NO DATA\n",
+    );
+}
+
+#[test]
+fn index_view_alter_drop_layout() {
+    check(
+        "create index i on t (a) where b > 0",
+        "CREATE INDEX i ON t (a)\nWHERE b > 0\n",
+    );
+    check(
+        "create view v as select a from t with local check option",
+        "CREATE VIEW v AS\nSELECT a\nFROM t\nWITH LOCAL CHECK OPTION\n",
+    );
+    // 操作が 1 つなら 1 行、2 つ以上なら行頭カンマ
+    check(
+        "alter table t add column c int",
+        "ALTER TABLE t ADD COLUMN c int\n",
+    );
+    check(
+        "alter table t add column c int, drop column d",
+        "ALTER TABLE t\n    ADD COLUMN c int\n  , DROP COLUMN d\n",
+    );
+    check(
+        "drop function if exists f(int, text) cascade",
+        "DROP FUNCTION IF EXISTS f(int, text) CASCADE\n",
+    );
+}
+
+#[test]
+fn merge_layout() {
+    check(
+        "merge into t using s on s.id = t.id and s.x = 1 when matched then update set v = s.v when not matched then insert (id, v) values (s.id, s.v) when not matched by source then delete",
+        "\
+MERGE INTO t
+USING s
+    ON s.id = t.id
+        AND s.x = 1
+WHEN MATCHED THEN
+    UPDATE SET v = s.v
+WHEN NOT MATCHED THEN
+    INSERT (id, v)
+    VALUES (s.id, s.v)
+WHEN NOT MATCHED BY SOURCE THEN
+    DELETE
+",
     );
 }
