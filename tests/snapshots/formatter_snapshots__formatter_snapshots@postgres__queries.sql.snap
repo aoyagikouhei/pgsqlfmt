@@ -210,3 +210,9 @@ SELECT
     'con'
         'tinued' AS s
   , 1;
+
+-- 抽出方法は入力のまま、TABLESAMPLE と REPEATABLE はキーワード
+SELECT c.id
+FROM customers AS c TABLESAMPLE bernoulli (100) REPEATABLE (1)
+WHERE c.id > 0
+ORDER BY c.id;

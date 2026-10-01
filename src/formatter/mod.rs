@@ -173,6 +173,15 @@ impl<'a> Formatter<'a> {
         let mut first = true;
         for element in children(root) {
             match element {
+                // COPY のデータは `;` の直後から入力のまま続ける（改行を足すとデータの始まりが変わる）
+                Element::Node(stmt)
+                    if writer::token_range(stmt)
+                        .is_some_and(|(t, _)| t.kind == TokenKind::CopyData) =>
+                {
+                    self.w.glue();
+                    self.statement(stmt, 0);
+                    self.w.keep_output();
+                }
                 Element::Node(stmt) => {
                     if !first {
                         self.w.newline(0);

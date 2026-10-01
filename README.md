@@ -63,6 +63,7 @@ repos:
 - CREATE TABLE の列と制約は 1 行ずつ行頭カンマで並べる。CREATE INDEX / CREATE [MATERIALIZED] VIEW /
   ALTER TABLE / DROP / MERGE にも対応する
 - 対応していない文（CREATE SEQUENCE / GRANT など）や解釈できない部分は、元のテキストのまま出す
+- `COPY ... FROM STDIN;` に続くデータ（`\.` だけの行まで）は、元のテキストのまま出す
 
 
 ローカルに Rust を入れず、Docker だけで開発します。必要なのは Docker と Docker Compose です。

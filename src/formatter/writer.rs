@@ -57,6 +57,8 @@ pub(super) struct Writer<'a> {
     /// 測定中なら、出力せずに幅だけを数える
     measure: Option<Measure>,
     keyword_case: KeywordCase,
+    /// 出力の最後の空白を削るとき、ここより前は削らない（COPY のデータの行末の空白は値の一部）
+    keep_len: usize,
 }
 
 /// 1 行で書いたときに行幅に収まるかの測定
@@ -106,6 +108,7 @@ impl<'a> Writer<'a> {
             must_break: false,
             measure: None,
             keyword_case,
+            keep_len: 0,
         };
         w.attach_comments(root);
         w
@@ -330,6 +333,11 @@ impl<'a> Writer<'a> {
         self.glue_next = true;
     }
 
+    /// ここまでの出力を、最後の空白を削る対象から外す
+    pub(super) fn keep_output(&mut self) {
+        self.keep_len = self.out.len();
+    }
+
     pub(super) fn token(&mut self, token: &Token<'a>) {
         let text = match token.kind {
             TokenKind::Keyword => self.keyword_text(token.text),
@@ -460,7 +468,7 @@ impl<'a> Writer<'a> {
             }
             self.word(comment.token.text, comment.token.kind, 0);
         }
-        let trimmed = self.out.trim_end().len();
+        let trimmed = self.out.trim_end().len().max(self.keep_len);
         self.out.truncate(trimmed);
         if !self.out.is_empty() {
             self.out.push('\n');

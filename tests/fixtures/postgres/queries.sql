@@ -51,3 +51,6 @@ select sku, qty from stock order by sku;
 -- 改行を挟んだ文字列はつながる
 select 'con'
   'tinued' as s, 1;
+
+-- 抽出方法は入力のまま、TABLESAMPLE と REPEATABLE はキーワード
+select c.id from customers as c tablesample bernoulli (100) repeatable (1) where c.id > 0 order by c.id;

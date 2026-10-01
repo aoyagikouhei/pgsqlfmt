@@ -372,6 +372,18 @@ impl Parser<'_> {
                 self.bump();
             }
             self.opt_alias(true);
+            // `TABLESAMPLE method (args) [REPEATABLE (seed)]`。抽出方法の名前は関数名と同じく入力のまま
+            if self.eat_kw("tablesample") {
+                if self.at_name() {
+                    self.bump();
+                }
+                if self.at(TokenKind::LParen) {
+                    self.arg_list(0);
+                }
+                if self.eat_kw("repeatable") && self.at(TokenKind::LParen) {
+                    self.arg_list(0);
+                }
+            }
             self.wrap(cp, NodeKind::TableRef);
         }
         true

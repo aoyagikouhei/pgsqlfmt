@@ -55,6 +55,8 @@ pub enum TokenKind {
     ColonEquals,
     /// どの規則にも当てはまらない 1 文字
     Unknown,
+    /// `COPY ... FROM STDIN;` の直後から `\.` だけの行までのデータ（`;` と同じ行の残りを含む）
+    CopyData,
 }
 
 impl TokenKind {
@@ -92,8 +94,9 @@ pub struct Token<'a> {
 }
 
 /// `src` の一部を字句解析する。トークンの位置は `base` を足した、元の入力での位置になる。
+/// 関数本体などの一部なので、COPY のデータは読まない。
 pub fn tokenize_with_offset(src: &str, base: usize) -> Vec<Token<'_>> {
-    let mut tokens = tokenize(src);
+    let mut tokens = scan_all(src, false);
     for token in &mut tokens {
         token.offset += base;
     }
@@ -101,6 +104,10 @@ pub fn tokenize_with_offset(src: &str, base: usize) -> Vec<Token<'_>> {
 }
 
 pub fn tokenize(src: &str) -> Vec<Token<'_>> {
+    scan_all(src, true)
+}
+
+fn scan_all(src: &str, copy_data: bool) -> Vec<Token<'_>> {
     let mut lexer = Lexer {
         src,
         bytes: src.as_bytes(),
@@ -110,13 +117,54 @@ pub fn tokenize(src: &str) -> Vec<Token<'_>> {
     while lexer.pos < src.len() {
         let start = lexer.pos;
         let kind = lexer.scan();
+        // `COPY ... FROM STDIN;` の直後からデータの終わりまでを 1 つのトークンにする。
+        // 最後の改行のほかに何も残っていなければデータはない
+        let copy_follows = copy_data
+            && kind == TokenKind::Semicolon
+            && ends_copy_from_stdin(&tokens)
+            && !strip_last_newline(&src[lexer.pos..]).is_empty();
         tokens.push(Token {
             kind,
             text: &src[start..lexer.pos],
             offset: start,
         });
+        if copy_follows {
+            let start = lexer.pos;
+            lexer.copy_data();
+            tokens.push(Token {
+                kind: TokenKind::CopyData,
+                text: &src[start..lexer.pos],
+                offset: start,
+            });
+        }
     }
     tokens
+}
+
+/// `tokens` の最後の文が `COPY ... FROM STDIN` か。括弧の中（`COPY (SELECT ... FROM stdin) TO ...`）は見ない
+fn ends_copy_from_stdin(tokens: &[Token]) -> bool {
+    let mut depth = 0usize;
+    let mut words = Vec::new();
+    for t in tokens.iter().rev() {
+        match t.kind {
+            TokenKind::Semicolon | TokenKind::CopyData => break,
+            TokenKind::RParen => depth += 1,
+            TokenKind::LParen => depth = depth.saturating_sub(1),
+            kind if kind.is_trivia() || depth > 0 => {}
+            TokenKind::Ident => words.push(t.text),
+            _ => words.push(""),
+        }
+    }
+    words.last().is_some_and(|w| w.eq_ignore_ascii_case("copy"))
+        && words
+            .windows(2)
+            .any(|w| w[0].eq_ignore_ascii_case("stdin") && w[1].eq_ignore_ascii_case("from"))
+}
+
+/// 最後の改行（`\n` か `\r\n`）を 1 つ除く。整形結果の最後にはいつも改行が付くので
+fn strip_last_newline(text: &str) -> &str {
+    let text = text.strip_suffix('\n').unwrap_or(text);
+    text.strip_suffix('\r').unwrap_or(text)
 }
 
 // 区切りはすべて ASCII なので、バイト単位で進めても UTF-8 の文字の途中で切れることはない。
@@ -140,6 +188,23 @@ impl Lexer<'_> {
         while self.peek_is(0, &pred) {
             self.pos += 1;
         }
+    }
+
+    /// COPY のデータを `\.` だけの行（`\r` が付いてもよい）まで読む。なければ入力の最後の改行の前まで
+    /// （行末のタブは空の列、空行は空の行なので、空白も削らない）。
+    /// psql と同じく、データは `;` の次の行から始まる。`;` と同じ行の残りもデータに含めて、
+    /// 整形でデータの始まる位置が変わらないようにする
+    fn copy_data(&mut self) {
+        let start = self.pos;
+        let mut line_start = start;
+        for (i, line) in self.src[start..].split_inclusive('\n').enumerate() {
+            if i > 0 && line.trim_end_matches(['\n', '\r']) == "\\." {
+                self.pos = line_start + 2;
+                return;
+            }
+            line_start += line.len();
+        }
+        self.pos = start + strip_last_newline(&self.src[start..]).len();
     }
 
     /// 次のトークンを 1 つ読み、その種類を返す。`pos` は必ず進む。
@@ -439,6 +504,45 @@ mod tests {
         let tokens = lex(src);
         assert_eq!(tokens.len(), 1, "{src:?} -> {tokens:?}");
         tokens[0].0
+    }
+
+    #[test]
+    fn copy_data() {
+        // `;` と同じ行の残り（ここではコメント）もデータ。終わりの印は次の行から探す
+        assert_eq!(
+            lex("COPY t FROM stdin; -- c \\.\n1\t'\n\\.\r\nSELECT"),
+            [
+                (TokenKind::Ident, "COPY"),
+                (TokenKind::Ident, "t"),
+                (TokenKind::Ident, "FROM"),
+                (TokenKind::Ident, "stdin"),
+                (TokenKind::Semicolon, ";"),
+                (TokenKind::CopyData, " -- c \\.\n1\t'\n\\."),
+                (TokenKind::Ident, "SELECT"),
+            ]
+        );
+        // psql は `;` と同じ行の `\.` をデータの終わりにしない
+        assert_eq!(
+            texts("copy t from stdin;\\.\n1\n\\.\nselect"),
+            ["copy", "t", "from", "stdin", ";", "\\.\n1\n\\.", "select"]
+        );
+        // 終わりの印がなければ最後の改行の前まで。改行しかなければデータはない
+        assert_eq!(
+            texts("copy t from stdin;\n\n1\t\n\n"),
+            ["copy", "t", "from", "stdin", ";", "\n\n1\t\n"]
+        );
+        assert_eq!(
+            texts("copy t from stdin;\r\n"),
+            ["copy", "t", "from", "stdin", ";"]
+        );
+        // FROM STDIN でなければデータはない
+        assert_eq!(
+            texts("copy t to stdout;\n'a'"),
+            ["copy", "t", "to", "stdout", ";", "'a'"]
+        );
+        // 関数本体の一部ではデータを読まない
+        let body = tokenize_with_offset("copy t from stdin;\n'a'", 0);
+        assert!(body.iter().all(|t| t.kind != TokenKind::CopyData));
     }
 
     #[test]

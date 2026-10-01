@@ -311,6 +311,13 @@ impl<'a> Parser<'a> {
                 self.bump();
                 continue;
             }
+            // COPY のデータはセミコロンで終わらないので、それだけで 1 つの文にする
+            if token.kind == TokenKind::CopyData {
+                self.start_node(NodeKind::RawStatement);
+                self.bump();
+                self.finish_node();
+                continue;
+            }
             self.statement();
             if !self.at_statement_end() {
                 self.start_node(NodeKind::Error);

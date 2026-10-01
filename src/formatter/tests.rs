@@ -1139,3 +1139,53 @@ ALTER TABLE t
         "SELECT\n    a, -- a の説明\n    -- b の前\n    b\n",
     );
 }
+
+#[test]
+fn copy_from_stdin_data_is_kept_as_is() {
+    // データ行の引用符やセミコロンで、後ろの文の整形が止まらない
+    check(
+        "copy t (a, b) from stdin;\nit's;\tx\n\\.\nselect   2 from t;\n",
+        "copy t (a, b) from stdin;\nit's;\tx\n\\.\nSELECT 2\nFROM t;\n",
+    );
+    // 空行・行末の空白もデータのまま。終わりの印の後の空行は残る
+    check(
+        "COPY t FROM STDIN WITH (FORMAT csv);\n\n1, 'a' \n\\.\n\nselect 1;\n",
+        "COPY t FROM STDIN WITH (FORMAT csv);\n\n1, 'a' \n\\.\n\nSELECT 1;\n",
+    );
+    // 終わりの印がなければ入力の終わりまでがデータ
+    check(
+        "copy t from stdin;\n1\t2\n'\n",
+        "copy t from stdin;\n1\t2\n'\n",
+    );
+    // 2 つ目以降の COPY のデータも入力のまま
+    check(
+        "copy a from stdin;\n1\n\\.\ncopy b from stdin;\nselect   1  ;\n2\tdon't\n\\.\nselect   1;\n",
+        "copy a from stdin;\n1\n\\.\ncopy b from stdin;\nselect   1  ;\n2\tdon't\n\\.\nSELECT 1;\n",
+    );
+    // 終わりの印がなければ、行末のタブ（空の列）や空行もデータに残す
+    check("copy t from stdin;\n1\t\n", "copy t from stdin;\n1\t\n");
+    check("copy t from stdin;\n\t\n", "copy t from stdin;\n\t\n");
+    check("copy t from stdin;\n1\n\n", "copy t from stdin;\n1\n\n");
+    // 括弧の中の FROM stdin は COPY のデータの印ではない
+    check(
+        "copy (select * from stdin) to stdout;\nselect   1;\n",
+        "copy (select * from stdin) to stdout;\nSELECT 1;\n",
+    );
+    // FROM STDIN でない COPY の後ろは普通の文
+    check(
+        "copy t to stdout;\nselect 1;\n",
+        "copy t to stdout;\nSELECT 1;\n",
+    );
+}
+
+#[test]
+fn tablesample_keywords_are_uppercased() {
+    check(
+        "select * from t tablesample system (10) repeatable (1)",
+        "SELECT *\nFROM t TABLESAMPLE system (10) REPEATABLE (1)\n",
+    );
+    check(
+        "select * from t as s tablesample bernoulli (5) where s.a = 1",
+        "SELECT *\nFROM t AS s TABLESAMPLE bernoulli (5)\nWHERE s.a = 1\n",
+    );
+}
