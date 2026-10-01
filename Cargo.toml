@@ -2,6 +2,9 @@
 name = "pgsqlfmt"
 version = "0.1.0"
 edition = "2024"
+description = "PostgreSQL の SQL / PL/pgSQL のフォーマッター"
+license = "MIT"
+repository = "https://github.com/aoyagikouhei/pgsqlfmt"
 
 [dependencies]
 

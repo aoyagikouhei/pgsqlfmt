@@ -64,3 +64,7 @@ repos:
 
 - [使い方](docs/usage.md): インストール、オプション、pre-commit、整形のスタイル、対応している文
 - [開発](docs/development.md): 開発環境、コードの構成、テスト、新しい構文に対応する手順
+
+## ライセンス
+
+[MIT](LICENSE)
