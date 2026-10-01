@@ -62,6 +62,46 @@ ALTER TABLE products
   , ALTER COLUMN created_on TYPE timestamp USING created_on::timestamp;
 ALTER TABLE products RENAME COLUMN sku TO code;
 ALTER TABLE product_tags RENAME TO tags;
+CREATE FUNCTION products_upper_name()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    new.name := upper(new.name);
+    RETURN new;
+END
+$$;
+CREATE FUNCTION noop_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN NULL;
+END
+$$;
+CREATE TRIGGER products_upper_name
+BEFORE INSERT OR UPDATE OF name, code ON products
+FOR EACH ROW
+WHEN (new.name IS NOT NULL AND new.name <> '')
+EXECUTE FUNCTION products_upper_name();
+CREATE OR REPLACE TRIGGER products_upper_name
+BEFORE INSERT OR UPDATE OF name ON products
+FOR EACH ROW
+EXECUTE FUNCTION products_upper_name();
+CREATE CONSTRAINT TRIGGER products_check
+AFTER INSERT ON products
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE PROCEDURE noop_trigger();
+CREATE TRIGGER tags_changed
+AFTER UPDATE ON tags
+REFERENCING OLD TABLE AS old_rows NEW TABLE new_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION noop_trigger('x', 1);
+CREATE TRIGGER expensive_insert
+INSTEAD OF INSERT ON expensive_products
+FOR EACH ROW
+EXECUTE FUNCTION noop_trigger();
 INSERT INTO products (code, name, price, category)
 VALUES
     ('a', 'apple', 100, 'food')

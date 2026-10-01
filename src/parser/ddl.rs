@@ -133,6 +133,21 @@ const OBJECT_TYPES: &[&str] = &[
     "view",
 ];
 
+/// CREATE TRIGGER の句の始まり
+const TRIGGER_CLAUSE_STARTS: &[&str] = &[
+    "before",
+    "after",
+    "instead",
+    "from",
+    "not",
+    "deferrable",
+    "initially",
+    "referencing",
+    "for",
+    "when",
+    "execute",
+];
+
 /// 表制約の始まり
 const TABLE_CONSTRAINT_STARTS: &[&str] = &[
     "constraint",
@@ -376,6 +391,98 @@ impl Parser<'_> {
         self.name_path();
         self.ddl_rest(Self::as_query);
         self.finish_node();
+    }
+
+    pub(super) fn at_create_trigger(&self) -> bool {
+        self.at_words(&[
+            &["create"],
+            &["or", ""],
+            &["replace", ""],
+            &["constraint", ""],
+            &["trigger"],
+        ])
+    }
+
+    /// `CREATE [OR REPLACE] [CONSTRAINT] TRIGGER name {BEFORE | AFTER | INSTEAD OF} event [OR ...] ON table
+    ///  [FROM ref] [deferrable] [REFERENCING ...] [FOR [EACH] {ROW | STATEMENT}] [WHEN (cond)]
+    ///  EXECUTE {FUNCTION | PROCEDURE} f(args)`。名前の後ろは句ごとに `TriggerClause` にする
+    pub(super) fn create_trigger_stmt(&mut self) {
+        self.start_node(NodeKind::CreateTriggerStmt);
+        while !self.at_kw("trigger") {
+            self.bump_kw();
+        }
+        self.bump_kw();
+        if self.at_name() {
+            self.bump();
+        }
+        while !self.at_statement_end() {
+            if !self.at_any_kw(TRIGGER_CLAUSE_STARTS) {
+                // 解釈できない部分は次の句まで 1 つにまとめ、前の句と同じ行に元のまま書く
+                // （`ON :tbl` のような psql の変数を分けない）
+                self.start_node(NodeKind::Error);
+                while !self.at_statement_end() && !self.at_any_kw(TRIGGER_CLAUSE_STARTS) {
+                    self.bump_balanced();
+                }
+                self.finish_node();
+                continue;
+            }
+            self.start_node(NodeKind::TriggerClause);
+            if self.at_any_kw(&["before", "after", "instead"]) {
+                self.trigger_events();
+            } else if self.eat_kw("from") {
+                self.name_path();
+            } else if self.at_any_kw(&["not", "deferrable", "initially"]) {
+                // NOT DEFERRABLE / DEFERRABLE / INITIALLY {IMMEDIATE | DEFERRED}
+                while self.at_any_kw(&["not", "deferrable", "initially", "immediate", "deferred"]) {
+                    self.bump_kw();
+                }
+            } else if self.eat_kw("referencing") {
+                // `{OLD | NEW} TABLE [AS] name` の並び
+                while self.at_any_kw(&["old", "new"]) {
+                    self.bump_kw();
+                    self.eat_kw("table");
+                    self.eat_kw("as");
+                    if self.at_name() {
+                        self.bump();
+                    }
+                }
+            } else if self.eat_kw("for") {
+                self.eat_kw("each");
+                self.eat_kw("row");
+                self.eat_kw("statement");
+            } else if self.eat_kw("when") {
+                self.expr();
+            } else {
+                self.bump_kw();
+                if !self.eat_kw("function") {
+                    self.eat_kw("procedure");
+                }
+                self.expr();
+            }
+            self.finish_node();
+        }
+        self.finish_node();
+    }
+
+    /// `{BEFORE | AFTER | INSTEAD OF} {INSERT | UPDATE [OF col, ...] | DELETE | TRUNCATE} [OR ...] ON table`
+    fn trigger_events(&mut self) {
+        self.bump_kw();
+        self.eat_kw("of");
+        while self.at_any_kw(&["insert", "update", "delete", "truncate"]) {
+            self.bump_kw();
+            if self.eat_kw("of") {
+                while self.at_name() && !self.at_any_kw(&["on", "or"]) {
+                    self.bump();
+                    self.eat(TokenKind::Comma);
+                }
+            }
+            if !self.eat_kw("or") {
+                break;
+            }
+        }
+        if self.eat_kw("on") {
+            self.name_path();
+        }
     }
 
     /// `ALTER TABLE [IF EXISTS] [ONLY] name [*] action, ...`

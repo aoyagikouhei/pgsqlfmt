@@ -62,6 +62,7 @@ repos:
   IF / CASE / LOOP / WHILE / FOR / FOREACH の中はさらに 1 段深くする
 - CREATE TABLE の列と制約は 1 行ずつ行頭カンマで並べる。CREATE INDEX / CREATE [MATERIALIZED] VIEW /
   ALTER TABLE / DROP / MERGE にも対応する
+- CREATE TRIGGER は、タイミングとイベント・FOR EACH・WHEN・EXECUTE などの句を 1 行ずつにする
 - 対応していない文（CREATE SEQUENCE / GRANT など）や解釈できない部分は、元のテキストのまま出す
 - `COPY ... FROM STDIN;` に続くデータ（`\.` だけの行まで）は、元のテキストのまま出す
 

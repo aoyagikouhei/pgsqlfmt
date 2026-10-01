@@ -15,6 +15,14 @@ alter table products add column stock int not null default 0, add constraint pro
   alter column category set default 'food', alter column created_on type timestamp using created_on::timestamp;
 alter table products rename column sku to code;
 alter table product_tags rename to tags;
+create function products_upper_name() returns trigger language plpgsql as $$ begin new.name := upper(new.name); return new; end $$;
+create function noop_trigger() returns trigger language plpgsql as $$ begin return null; end $$;
+create trigger products_upper_name before insert or update of name, code on products for each row
+  when (new.name is not null and new.name <> '') execute function products_upper_name();
+create or replace trigger products_upper_name before insert or update of name on products for each row execute function products_upper_name();
+create constraint trigger products_check after insert on products deferrable initially deferred for each row execute procedure noop_trigger();
+create trigger tags_changed after update on tags referencing old table as old_rows new table new_rows for each statement execute function noop_trigger('x', 1);
+create trigger expensive_insert instead of insert on expensive_products for each row execute function noop_trigger();
 insert into products (code, name, price, category) values ('a', 'apple', 100, 'food'), ('h', 'hammer', 2000, 'tool');
 merge into products as p using (values ('a', 150::numeric), ('b', 5::numeric)) as s (code, price) on s.code = p.code
   when matched and s.price > 1000 then delete

@@ -4,6 +4,7 @@
 //! - CREATE TABLE ... AS / CREATE VIEW ... AS の問い合わせは、次の行から書く
 //! - CREATE INDEX の WHERE は次の行に置く
 //! - ALTER TABLE の操作が 2 つ以上なら、1 行ずつ行頭カンマで並べる
+//! - CREATE TRIGGER は名前の後ろの句を 1 行ずつ並べる
 //! - MERGE は USING / WHEN を行頭に置き、ON と各 WHEN の処理を 1 段深くする
 
 use super::{Formatter, as_node, children, is_statement};
@@ -34,6 +35,19 @@ impl<'a> Formatter<'a> {
                     }
                     self.element(element);
                 }
+            }
+        }
+    }
+
+    /// CREATE TRIGGER の句は、1 行ずつ字下げせずに並べる（CREATE FUNCTION のオプションと同じ）
+    pub(super) fn create_trigger(&mut self, stmt: &Node<'a>, base: usize) {
+        for element in children(stmt) {
+            match as_node(element) {
+                Some(n) if n.kind == NodeKind::TriggerClause => {
+                    self.w.newline(base);
+                    self.node(n);
+                }
+                _ => self.element(element),
             }
         }
     }

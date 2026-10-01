@@ -342,6 +342,8 @@ impl<'a> Parser<'a> {
             self.create_index_stmt();
         } else if self.at_create_view() {
             self.create_view_stmt();
+        } else if self.at_create_trigger() {
+            self.create_trigger_stmt();
         } else if self.at_kw("alter") && self.nth_kw(1, "table") {
             self.alter_table_stmt();
         } else if self.at_kw("drop") {

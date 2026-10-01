@@ -1024,3 +1024,18 @@ fn large_inputs_do_not_trip_the_progress_guard() {
         .count();
     assert_eq!(statements, 40_000);
 }
+
+#[test]
+fn create_trigger_statements() {
+    assert_eq!(
+        stmts(
+            "CREATE TRIGGER t BEFORE UPDATE OF a, b OR DELETE ON s.x FOR EACH ROW WHEN (a > 0) EXECUTE FUNCTION f(1)"
+        ),
+        "(CreateTriggerStmt CREATE TRIGGER t (TriggerClause BEFORE UPDATE OF a , b OR DELETE ON s . x) (TriggerClause FOR EACH ROW) (TriggerClause WHEN (ParenExpr ( (BinaryExpr (ColumnRef a) > (Literal 0)) ))) (TriggerClause EXECUTE FUNCTION (FuncCall f (ArgList ( (Literal 1) )))))"
+    );
+    // 知らない語は次の句まで 1 つの Error にして先へ進む
+    assert_eq!(
+        stmts("CREATE TRIGGER t AFTER INSERT ON x bogus words FOR EACH ROW"),
+        "(CreateTriggerStmt CREATE TRIGGER t (TriggerClause AFTER INSERT ON x) (Error bogus words) (TriggerClause FOR EACH ROW))"
+    );
+}

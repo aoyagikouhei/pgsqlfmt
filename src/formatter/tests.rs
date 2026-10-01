@@ -1189,3 +1189,55 @@ fn tablesample_keywords_are_uppercased() {
         "SELECT *\nFROM t AS s TABLESAMPLE bernoulli (5)\nWHERE s.a = 1\n",
     );
 }
+
+#[test]
+fn create_trigger_clauses_are_one_per_line() {
+    check(
+        "create or replace trigger trg before insert or update of a, b on public.t for each row when (new.a is distinct from old.a) execute function f('x', 1)",
+        "\
+CREATE OR REPLACE TRIGGER trg
+BEFORE INSERT OR UPDATE OF a, b ON public.t
+FOR EACH ROW
+WHEN (new.a IS DISTINCT FROM old.a)
+EXECUTE FUNCTION f('x', 1)
+",
+    );
+    check(
+        "create constraint trigger trg after delete on t from u deferrable initially deferred for each row execute procedure f()",
+        "\
+CREATE CONSTRAINT TRIGGER trg
+AFTER DELETE ON t
+FROM u
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE PROCEDURE f()
+",
+    );
+    check(
+        "create trigger trg after update on t referencing old table as o new table n for each statement execute function f();\ncreate trigger v instead of insert on v for each row execute function g();",
+        "\
+CREATE TRIGGER trg
+AFTER UPDATE ON t
+REFERENCING OLD TABLE AS o NEW TABLE n
+FOR EACH STATEMENT
+EXECUTE FUNCTION f();
+CREATE TRIGGER v
+INSTEAD OF INSERT ON v
+FOR EACH ROW
+EXECUTE FUNCTION g();
+",
+    ); // UPDATE OF の列の後ろのイベントもキーワード
+    check(
+        "create trigger t before update of a, b or delete on t for each row execute function f()",
+        "CREATE TRIGGER t\nBEFORE UPDATE OF a, b OR DELETE ON t\nFOR EACH ROW\nEXECUTE FUNCTION f()\n",
+    );
+    // 解釈できない部分（psql の変数など）は分けずに、前の句と同じ行にそのまま書く
+    check(
+        "create trigger t before insert on :tbl for each row execute function :fn();",
+        "CREATE TRIGGER t\nBEFORE INSERT ON :tbl\nFOR EACH ROW\nEXECUTE FUNCTION :fn();\n",
+    );
+    check(
+        "create trigger t after insert on x referencing new row as r for each row execute function f()",
+        "CREATE TRIGGER t\nAFTER INSERT ON x\nREFERENCING NEW row as r\nFOR EACH ROW\nEXECUTE FUNCTION f()\n",
+    );
+}
