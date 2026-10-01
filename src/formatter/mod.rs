@@ -70,6 +70,7 @@ pub fn format_with_options(src: &str, options: &FormatOptions) -> String {
     let mut f = Formatter {
         w: Writer::new(src, &root, options.keyword_case),
         max_width: options.max_width,
+        reserve: None,
         indent_width: options.indent_width,
         comma_style: options.comma_style,
     };
@@ -121,6 +122,8 @@ const LOOSE_KEYWORDS: &[&str] = &[
 struct Formatter<'a> {
     w: Writer<'a>,
     max_width: usize,
+    /// 同じ行の後ろに続く別名（`AS name`）の幅と、その行。折り返しの判定で行幅から差し引く
+    reserve: Option<(usize, usize)>,
     indent_width: usize,
     comma_style: CommaStyle,
 }
@@ -280,19 +283,44 @@ impl<'a> Formatter<'a> {
     }
 
     fn inline(&mut self, node: &Node<'a>) {
-        for element in children(node) {
-            self.element(element);
-        }
+        self.inline_glued(node, |_| false);
     }
 
-    /// `glued` に当たる子の前には空白を入れない（`f(x)` / `numeric(10, 2)` / `a[1]`）
+    /// `glued` に当たる子の前には空白を入れない（`f(x)` / `numeric(10, 2)` / `a[1]`）。
+    /// 最後の子が別名なら、その前を書く間は別名の幅を同じ行に取っておく
+    /// （`f(a, b) AS name` の括弧の中を、別名まで含めた長さで折り返す）
     fn inline_glued(&mut self, node: &Node<'a>, glued: fn(&Element) -> bool) {
-        for (i, element) in children(node).into_iter().enumerate() {
+        let elements = children(node);
+        let alias_width = match elements.last() {
+            Some(Element::Node(alias)) if alias.kind == NodeKind::Alias => self.inline_width(alias),
+            _ => 0,
+        };
+        for (i, element) in elements.iter().enumerate() {
             if i > 0 && glued(element) {
                 self.w.glue();
             }
+            // 別名を持つノード（項目・表・副問い合わせ）は、入れ子になると改行が入るので、同じ行で重ならない
+            let saved = self.reserve;
+            if alias_width > 0 && i + 1 < elements.len() {
+                self.reserve = Some((alias_width, self.w.line_id()));
+            }
             self.element(element);
+            self.reserve = saved;
         }
+    }
+
+    /// ノードを行の途中に 1 行で書いたときの幅（前の空白を含み、字下げとコメントは含まない）。外側を測っている途中なら 0。
+    /// コメントは、入力によって前後どちらのトークンに付くかが変わるので数えない（数えると 2 回目の整形で変わる）
+    fn inline_width(&mut self, node: &Node<'a>) -> usize {
+        if self.w.measuring() {
+            return 0;
+        }
+        let saved = self.w.begin_measure_inline();
+        let start = self.w.measure_column().unwrap_or(0);
+        self.inline(node);
+        let end = self.w.measure_column().unwrap_or(start);
+        self.w.end_measure(saved);
+        end.saturating_sub(start)
     }
 
     /// 改行でつないだ文字列（`'a'` 改行 `'b'`）は、改行を残さないと意味が変わるので、続きを次の行に書く

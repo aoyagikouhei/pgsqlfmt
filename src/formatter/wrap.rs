@@ -21,7 +21,11 @@ impl<'a> Formatter<'a> {
         if self.w.measuring() {
             return true;
         }
-        let saved = self.w.begin_measure(self.max_width);
+        let reserve = match self.reserve {
+            Some((width, line)) if line == self.w.line_id() => width,
+            _ => 0,
+        };
+        let saved = self.w.begin_measure(self.max_width.saturating_sub(reserve));
         render(self);
         self.w.end_measure(saved)
     }

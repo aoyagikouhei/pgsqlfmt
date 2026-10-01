@@ -1636,3 +1636,68 @@ ALTER TABLE t OWNER TO CURRENT_USER
 ",
     );
 }
+
+#[test]
+fn items_with_aliases_wrap_by_their_full_width() {
+    // 別名まで含めた長さで、行幅に収まるかを判定する
+    check(
+        "select format_name(customer_first_name, customer_last_name, customer_title) as display_name from customers",
+        "\
+SELECT format_name(
+    customer_first_name
+  , customer_last_name
+  , customer_title
+) AS display_name
+FROM customers
+",
+    );
+    // 別名の幅に行頭の字下げは入れない（78 桁で収まる）。後ろのコメントは数えない（入力によって付く先が変わる）
+    check(
+        "select rank() over (partition by m.month order by m.total desc nulls last) as rnk, 1 from m",
+        "\
+SELECT
+    rank() OVER (PARTITION BY m.month ORDER BY m.total DESC NULLS LAST) AS rnk
+  , 1
+FROM m
+",
+    );
+    check(
+        "select rank() over (partition by m.month order by m.total desc nulls last) as rnk /* 月内順位 */, 1 from m",
+        "\
+SELECT
+    rank() OVER (PARTITION BY m.month ORDER BY m.total DESC NULLS LAST) AS rnk /* 月内順位 */
+  , 1
+FROM m
+",
+    );
+    // 別名そのものを書くときは、別名の幅を差し引かない（78 桁で収まる）
+    check(
+        "select * from generate_series(1, 2) as g(first_column_name, second_column_name, third)",
+        "SELECT *\nFROM generate_series(1, 2) AS g (first_column_name, second_column_name, third)\n",
+    );
+    // 括弧を折り返したあとの行では、別名の幅を差し引かない（別名は閉じ括弧の行に来る）
+    check(
+        "select format_name(customer_first_name, coalesce(customer_middle_name, customer_nickname, ''), customer_last_name) as display_name_with_a_long_alias from customers",
+        "\
+SELECT format_name(
+    customer_first_name
+  , coalesce(customer_middle_name, customer_nickname, '')
+  , customer_last_name
+) AS display_name_with_a_long_alias
+FROM customers
+",
+    );
+    check(
+        "select format_name(customer_first_name, customer_last_name, customer_title) as display_name, 1 from customers",
+        "\
+SELECT
+    format_name(
+        customer_first_name
+      , customer_last_name
+      , customer_title
+    ) AS display_name
+  , 1
+FROM customers
+",
+    );
+}

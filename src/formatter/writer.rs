@@ -68,6 +68,8 @@ struct Measure {
     column: usize,
     max_width: usize,
     fits: bool,
+    /// コメントも数えるか
+    comments: bool,
 }
 
 /// 測定の前の状態（測定のあとに戻す）
@@ -207,6 +209,16 @@ impl<'a> Writer<'a> {
         self.measure.is_some()
     }
 
+    /// 測定中なら、測っている位置の桁
+    pub(super) fn measure_column(&self) -> Option<usize> {
+        self.measure.as_ref().map(|m| m.column)
+    }
+
+    /// いまの行を表す値（行の先頭の位置）。行が変わったかを見分けるのに使う
+    pub(super) fn line_id(&self) -> usize {
+        self.out.rfind('\n').map_or(0, |i| i + 1)
+    }
+
     /// 測定を始める。以降の出力は捨てて、いまの位置から `max_width` に収まるかだけを調べる。
     pub(super) fn begin_measure(&mut self, max_width: usize) -> Saved {
         let saved = Saved {
@@ -224,7 +236,20 @@ impl<'a> Writer<'a> {
             column: self.column(),
             max_width,
             fits: true,
+            comments: true,
         });
+        saved
+    }
+
+    /// 行の途中に続けて書いたときの幅を測る（前の空白は数え、字下げとコメントは数えない）
+    pub(super) fn begin_measure_inline(&mut self) -> Saved {
+        let saved = self.begin_measure(usize::MAX);
+        if let Some(m) = &mut self.measure {
+            m.comments = false;
+        }
+        // 行頭なら字下げを書いてしまうので、行の途中にいるものとして測る
+        self.at_line_start = false;
+        self.glue_next = false;
         saved
     }
 
@@ -365,7 +390,11 @@ impl<'a> Writer<'a> {
 
     /// トークンを `text` として書く。前後のコメントも書く。
     pub(super) fn token_as(&mut self, token: &Token<'a>, text: &str, outdent: usize) {
-        let attached = self.take_comments(token);
+        let attached = if self.measure.as_ref().is_some_and(|m| !m.comments) {
+            Attached::default()
+        } else {
+            self.take_comments(token)
+        };
         for comment in attached.leading {
             self.leading_comment(&comment);
         }
