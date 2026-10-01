@@ -120,7 +120,7 @@ where c.active;
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/aoyagikouhei/pgsqlfmt
-    rev: main  # タグやコミットを指定する
+    rev: v0.1.0  # リリースのタグ
     hooks:
       - id: pgsqlfmt          # 整形して書き換える
       # - id: pgsqlfmt-check  # 確かめるだけ（CI 向け）
@@ -130,6 +130,9 @@ repos:
 | --- | --- |
 | `pgsqlfmt` | `*.sql` を整形して書き換える |
 | `pgsqlfmt-check` | 整形されていない `*.sql` があれば失敗する（書き換えない） |
+
+`rev` には [リリース](https://github.com/aoyagikouhei/pgsqlfmt/releases) のタグを書きます。
+新しい版が出たら、`pre-commit autoupdate` で最新のタグに上げられます。
 
 オプションは `args` で渡します。
 
