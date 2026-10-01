@@ -190,6 +190,16 @@ impl Parser<'_> {
             // ラベルはブロックかループの前にだけ書ける
             return self.pl_loop();
         }
+        // `truncate := 1` / `drop[1] := 2` / `insert.x := 3` は、SQL の語と同じ綴りの変数への代入
+        let assigns = self.nth(1).is_some_and(|t| {
+            matches!(
+                t.kind,
+                TokenKind::ColonEquals | TokenKind::Dot | TokenKind::LBracket
+            ) || (t.kind == TokenKind::Operator && t.text == "=")
+        });
+        if self.at_name() && assigns {
+            return self.pl_assignment();
+        }
         let word = if token.kind == TokenKind::Ident {
             token.text.to_ascii_lowercase()
         } else {

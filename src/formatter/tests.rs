@@ -1272,3 +1272,23 @@ fn comment_on_statements() {
         "COMMENT ON TABLE :tbl IS 'x';\nCOMMENT ON COLUMN :tbl.c IS :'v';\nCOMMENT ON TABLE t IS U&'d\\0061t' uescape '!';\nCOMMENT ON COLUMN t.c IS 'x' 'y';\n",
     );
 }
+
+#[test]
+fn truncate_statements() {
+    check(
+        "truncate t1, only s.t2 restart identity cascade;\ntruncate table t3 * continue identity restrict;\ntruncate identity;",
+        "TRUNCATE t1, ONLY s.t2 RESTART IDENTITY CASCADE;\nTRUNCATE TABLE t3 * CONTINUE IDENTITY RESTRICT;\nTRUNCATE identity;\n",
+    );
+    // 子の表を含める `*` の後ろにも表が続く
+    check("truncate t1*,t2", "TRUNCATE t1 *, t2\n");
+    // PL/pgSQL の truncate という名前の変数への代入は TRUNCATE 文ではない
+    check(
+        "do $$ declare truncate int[]; drop record; begin truncate := '{5}'; truncate[1] := 1; drop.x = 2; truncate = '{}'; end $$",
+        "DO $$\nDECLARE\n    truncate int[];\n    drop record;\nBEGIN\n    truncate := '{5}';\n    truncate[1] := 1;\n    drop.x = 2;\n    truncate = '{}';\nEND\n$$\n",
+    );
+    // psql の変数は分けずに元のまま書く
+    check(
+        "truncate table :tbl, t cascade;",
+        "TRUNCATE TABLE :tbl, t CASCADE;\n",
+    );
+}

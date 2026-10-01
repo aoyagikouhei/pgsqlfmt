@@ -90,6 +90,8 @@ pub enum NodeKind {
     AlterTableStmt,
     AlterTableAction,
     DropStmt,
+    /// `TRUNCATE [TABLE] name, ... [RESTART IDENTITY] [CASCADE]`
+    TruncateStmt,
     /// `COMMENT ON object IS 'text'`
     CommentStmt,
     /// `CREATE [OR REPLACE] [CONSTRAINT] TRIGGER`

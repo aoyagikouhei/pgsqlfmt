@@ -468,6 +468,7 @@ fn is_statement(kind: NodeKind) -> bool {
             | NodeKind::DropStmt
             | NodeKind::CreateTriggerStmt
             | NodeKind::CommentStmt
+            | NodeKind::TruncateStmt
             | NodeKind::CreateFunctionStmt
             | NodeKind::DoStmt
             | NodeKind::CallStmt

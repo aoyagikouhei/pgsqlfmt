@@ -144,5 +144,10 @@ SELECT
   , category
 FROM products
 ORDER BY code;
+INSERT INTO product_copy (id, sku, name, price, category)
+VALUES (1, 'c', 'copy', 1, 'food');
+TRUNCATE TABLE ONLY product_copy, cheap RESTART IDENTITY CASCADE;
+SELECT count(*)
+FROM product_copy;
 DROP INDEX IF EXISTS products_name_idx;
 DROP VIEW IF EXISTS expensive_products CASCADE;

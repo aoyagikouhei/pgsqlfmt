@@ -344,6 +344,8 @@ impl<'a> Parser<'a> {
             self.create_view_stmt();
         } else if self.at_create_trigger() {
             self.create_trigger_stmt();
+        } else if self.at_kw("truncate") {
+            self.truncate_stmt();
         } else if self.at_kw("comment") && self.nth_kw(1, "on") {
             self.comment_stmt();
         } else if self.at_kw("alter") && self.nth_kw(1, "table") {

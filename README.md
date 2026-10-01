@@ -64,6 +64,7 @@ repos:
   ALTER TABLE / DROP / MERGE にも対応する
 - CREATE TRIGGER は、タイミングとイベント・FOR EACH・WHEN・EXECUTE などの句を 1 行ずつにする
 - COMMENT ON は 1 行にする（オブジェクトの種類と IS・NULL をキーワードとして大文字にする）
+- TRUNCATE は 1 行にする
 - 対応していない文（CREATE SEQUENCE / GRANT など）や解釈できない部分は、元のテキストのまま出す
 - `COPY ... FROM STDIN;` に続くデータ（`\.` だけの行まで）は、元のテキストのまま出す
 

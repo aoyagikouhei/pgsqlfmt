@@ -133,6 +133,9 @@ const OBJECT_TYPES: &[&str] = &[
     "view",
 ];
 
+/// TRUNCATE の表の並びの後ろのオプション
+const TRUNCATE_OPTIONS: &[&str] = &["restart", "continue", "identity", "cascade", "restrict"];
+
 /// COMMENT ON の後ろのオブジェクトの種類（PostgreSQL 18 の文書の一覧）。長いものから順に当てる
 const COMMENT_OBJECT_TYPES: &[&[&str]] = &[
     &["text", "search", "configuration"],
@@ -534,6 +537,50 @@ impl Parser<'_> {
         if self.eat_kw("on") {
             self.name_path();
         }
+    }
+
+    /// `TRUNCATE [TABLE] [ONLY] name [*], ... [RESTART | CONTINUE IDENTITY] [CASCADE | RESTRICT]`
+    pub(super) fn truncate_stmt(&mut self) {
+        self.start_node(NodeKind::TruncateStmt);
+        self.bump_kw();
+        self.eat_kw("table");
+        // 表の並び。オプションの語は、表の名前を読んだ後だけキーワードにする（`TRUNCATE identity`）
+        loop {
+            self.eat_kw("only");
+            if self.name_path() == 0 {
+                // `:tbl` のような psql の変数は、分けずに元のまま書く
+                self.raw_until(|p| p.at(TokenKind::Comma) || p.at_any_kw(TRUNCATE_OPTIONS));
+            }
+            if self.at_op("*") {
+                self.bump();
+            }
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        while !self.at_statement_end() {
+            if self.at_any_kw(TRUNCATE_OPTIONS) {
+                self.bump_kw();
+            } else {
+                self.raw_until(|p| p.at_any_kw(TRUNCATE_OPTIONS));
+            }
+        }
+        self.finish_node();
+    }
+
+    /// 文の終わりか `stop` の手前までを、元のまま書く `Error` にする。文の終わりでなければ必ず 1 つは読む
+    fn raw_until(&mut self, stop: fn(&Self) -> bool) {
+        if self.at_statement_end() {
+            return;
+        }
+        self.start_node(NodeKind::Error);
+        loop {
+            self.bump_balanced();
+            if self.at_statement_end() || stop(self) {
+                break;
+            }
+        }
+        self.finish_node();
     }
 
     /// `COMMENT ON object_type name [(args)] [ON table] IS {'text' | NULL}`

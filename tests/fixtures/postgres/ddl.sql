@@ -39,5 +39,8 @@ merge into products as p using (values ('a', 150::numeric), ('b', 5::numeric)) a
   when not matched then insert (code, name, price) values (s.code, 'new', s.price)
   returning merge_action(), p.code, p.price;
 select code, name, price, tax, stock, category from products order by code;
+insert into product_copy (id, sku, name, price, category) values (1, 'c', 'copy', 1, 'food');
+truncate table only product_copy, cheap restart identity cascade;
+select count(*) from product_copy;
 drop index if exists products_name_idx;
 drop view if exists expensive_products cascade;
