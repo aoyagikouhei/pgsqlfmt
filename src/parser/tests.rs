@@ -439,6 +439,19 @@ fn select_without_targets() {
 }
 
 #[test]
+fn select_into_before_targets() {
+    // PL/pgSQL の `SELECT INTO target expr` は、INTO を SELECT 句の先頭に置く
+    assert_eq!(
+        stmts("SELECT INTO STRICT r a, b FROM t"),
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (IntoClause INTO STRICT r) (TargetItem (ColumnRef a)) , (TargetItem (ColumnRef b))) (FromClause FROM (TableRef t))))"
+    );
+    assert_eq!(
+        stmts("SELECT INTO r * FROM t"),
+        "(SelectStmt (SimpleSelect (SelectClause SELECT (IntoClause INTO r) (TargetItem (ColumnRef *))) (FromClause FROM (TableRef t))))"
+    );
+}
+
+#[test]
 fn keyword_after_as_is_alias() {
     assert_eq!(
         stmts("SELECT 1 AS from"),

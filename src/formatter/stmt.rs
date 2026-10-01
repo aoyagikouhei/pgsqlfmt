@@ -97,14 +97,14 @@ impl<'a> Formatter<'a> {
     /// 項目が 1 つなら句と同じ行に、2 つ以上なら 1 行ずつ字下げして行頭カンマで並べる。
     pub(super) fn list_clause(&mut self, node: &Node<'a>, base: usize) {
         let elements = children(node);
-        // 先頭のキーワード（SELECT DISTINCT ON (...) の括弧を含む）
+        // 先頭のキーワード（SELECT DISTINCT ON (...) の括弧と、PL/pgSQL の `SELECT INTO target` を含む）
         let header_len = elements
             .iter()
             .position(|e| {
                 let header_token = as_token(e).is_some_and(|t| t.kind != TokenKind::Comma);
-                let distinct_on =
-                    node.kind == NodeKind::SelectClause && is_node(e, NodeKind::ExprList);
-                !(header_token || distinct_on)
+                let select_header = node.kind == NodeKind::SelectClause
+                    && (is_node(e, NodeKind::ExprList) || is_node(e, NodeKind::IntoClause));
+                !(header_token || select_header)
             })
             .unwrap_or(elements.len());
         let (header, rest) = elements.split_at(header_len);

@@ -61,6 +61,8 @@ pub(super) struct Writer<'a> {
     keep_len: usize,
     /// 直前に書いたトークンが `:` なら、元の入力でのその終わりの位置
     after_colon: Option<usize>,
+    /// 改行の文字列。入力の最初の改行に合わせる（`\r\n` の入力は `\r\n` のまま）
+    newline: &'static str,
 }
 
 /// 1 行で書いたときに行幅に収まるかの測定
@@ -114,6 +116,7 @@ impl<'a> Writer<'a> {
             keyword_case,
             keep_len: 0,
             after_colon: None,
+            newline: newline_style(src),
         };
         w.attach_comments(root);
         w
@@ -283,7 +286,7 @@ impl<'a> Writer<'a> {
         if !self.at_line_start {
             match &mut self.measure {
                 Some(m) => m.fits = false,
-                None => self.out.push('\n'),
+                None => self.out.push_str(self.newline),
             }
             self.at_line_start = true;
         }
@@ -351,8 +354,9 @@ impl<'a> Writer<'a> {
         }
         let indent = self.indent;
         self.newline(indent);
-        if !self.out.ends_with("\n\n") {
-            self.out.push('\n');
+        let blank = [self.newline, self.newline].concat();
+        if !self.out.ends_with(&blank) {
+            self.out.push_str(self.newline);
         }
     }
 
@@ -512,7 +516,7 @@ impl<'a> Writer<'a> {
         let trimmed = self.out.trim_end().len().max(self.keep_len);
         self.out.truncate(trimmed);
         if !self.out.is_empty() {
-            self.out.push('\n');
+            self.out.push_str(self.newline);
         }
         self.out
     }
@@ -555,6 +559,14 @@ pub(super) fn display_width(text: &str) -> usize {
             _ => 1,
         })
         .sum()
+}
+
+/// 入力の最初の改行が `\r\n` なら `\r\n`、それ以外（改行がない場合を含む）は `\n`
+fn newline_style(src: &str) -> &'static str {
+    match src.find('\n') {
+        Some(i) if src.as_bytes()[..i].ends_with(b"\r") => "\r\n",
+        _ => "\n",
+    }
 }
 
 fn count_newlines(text: &str) -> usize {

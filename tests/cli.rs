@@ -127,6 +127,31 @@ fn check_reports_unformatted_files_without_changing_them() {
 }
 
 #[test]
+fn crlf_and_bom_files_keep_their_form() {
+    let dir = TempDir::new();
+    let crlf = FORMATTED.replace('\n', "\r\n");
+    let bom = format!("\u{FEFF}{FORMATTED}");
+    let crlf_file = dir.file("crlf.sql", &crlf);
+    let bom_file = dir.file("bom.sql", &bom);
+    // 整形済みなら --check は通り、--write は書き換えない
+    let output = run(&["--check", "crlf.sql", "bom.sql"], "", &dir.0);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let output = run(&["--write", "crlf.sql", "bom.sql"], "", &dir.0);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(read(&crlf_file), crlf);
+    assert_eq!(read(&bom_file), bom);
+
+    // 未整形なら、改行コードと BOM を保ったまま整形する
+    let file = dir.file(
+        "u.sql",
+        &format!("\u{FEFF}{}", UNFORMATTED.replace(' ', "\r\n")),
+    );
+    let output = run(&["--write", "u.sql"], "", &dir.0);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(read(&file), format!("\u{FEFF}{crlf}"));
+}
+
+#[test]
 fn directories_are_searched_for_sql_files() {
     let dir = TempDir::new();
     dir.file("src/a.sql", UNFORMATTED);

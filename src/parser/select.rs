@@ -174,6 +174,10 @@ impl Parser<'_> {
         } else {
             self.eat_kw("all");
         }
+        // PL/pgSQL の `SELECT INTO target expr, ... FROM ...`（INTO を項目より前に書く形）
+        if self.at_kw("into") {
+            self.result_into_clause();
+        }
         self.comma_list(Self::at_clause_keyword, Self::target_item);
         self.finish_node();
 

@@ -77,3 +77,11 @@ begin
     raise notice 'caught: %', sqlerrm;
   end;
 end $$;
+
+do $$
+declare
+  n int;
+begin
+  select into strict n count(*) from users;
+  raise notice 'users: %', n;
+end $$;

@@ -43,6 +43,28 @@ fn empty_input() {
 }
 
 #[test]
+fn leading_bom_is_kept() {
+    check(
+        "\u{FEFF}select a, b from t",
+        "\u{FEFF}SELECT\n    a\n  , b\nFROM t\n",
+    );
+    assert_eq!(format("\u{FEFF}"), "\u{FEFF}");
+}
+
+#[test]
+fn newline_style_follows_the_input() {
+    // 最初の改行が CRLF なら、出力の改行もすべて CRLF（文字列やコメントの中の改行はもとから入力のまま）
+    check(
+        "select a, -- c\r\n b from t where x = 1\r\n\r\nand y = 2;\r\n\r\n\r\nselect 'a\r\nb';",
+        "SELECT\r\n    a -- c\r\n  , b\r\nFROM t\r\nWHERE x = 1\r\n    AND y = 2;\r\n\r\nSELECT 'a\r\nb';\r\n",
+    );
+    // 改行がなければ LF
+    check("select 1", "SELECT 1\n");
+    // 混在していれば最初の改行に合わせる
+    check("select 1;\nselect 2;\r\n", "SELECT 1;\nSELECT 2;\n");
+}
+
+#[test]
 fn single_item_stays_on_clause_line() {
     check("select a from t", "SELECT a\nFROM t\n");
 }
@@ -663,6 +685,22 @@ BEGIN
         SELECT 2;
     OPEN d(1);
     PERFORM f();
+END
+$$
+",
+    );
+    // INTO を項目より前に書く `SELECT INTO target ...` は、SELECT の行に続ける
+    check(
+        "do $$ begin select into strict r * from t; select into a, b x, y from t; end $$",
+        "\
+DO $$
+BEGIN
+    SELECT INTO STRICT r *
+    FROM t;
+    SELECT INTO a, b
+        x
+      , y
+    FROM t;
 END
 $$
 ",

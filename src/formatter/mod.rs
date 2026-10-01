@@ -17,7 +17,7 @@ mod tests;
 mod wrap;
 mod writer;
 
-use crate::lexer::{Token, TokenKind};
+use crate::lexer::{BOM, Token, TokenKind};
 use crate::parser::parse;
 use crate::syntax::{Element, Node, NodeKind};
 use writer::{Writer, is_opaque};
@@ -75,7 +75,12 @@ pub fn format_with_options(src: &str, options: &FormatOptions) -> String {
         comma_style: options.comma_style,
     };
     f.root(&root);
-    f.w.finish()
+    let out = f.w.finish();
+    // 先頭の BOM は入力のまま残す（字句解析器は空白として読むので、ここで付け直す）
+    if src.starts_with(BOM) {
+        return format!("{BOM}{out}");
+    }
+    out
 }
 
 /// 中身を細かく解釈していない句で、大文字にするキーワード

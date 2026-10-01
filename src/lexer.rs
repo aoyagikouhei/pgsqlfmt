@@ -96,6 +96,9 @@ pub struct Token<'a> {
     pub offset: usize,
 }
 
+/// UTF-8 の BOM。入力の先頭にあれば空白として扱う
+pub const BOM: &str = "\u{FEFF}";
+
 /// `src` の一部を字句解析する。トークンの位置は `base` を足した、元の入力での位置になる。
 /// 関数本体などの一部なので、COPY のデータと psql の変数は読まない。
 pub fn tokenize_with_offset(src: &str, base: usize) -> Vec<Token<'_>> {
@@ -119,6 +122,15 @@ fn scan_all(src: &str, top_level: bool) -> Vec<Token<'_>> {
         psql_variables: top_level,
     };
     let mut tokens = Vec::new();
+    // 先頭の BOM は空白として切り出す（識別子の文字にすると `select` にくっついてしまう）
+    if let Some(rest) = src.strip_prefix(BOM) {
+        lexer.pos = src.len() - rest.len();
+        tokens.push(Token {
+            kind: TokenKind::Whitespace,
+            text: BOM,
+            offset: 0,
+        });
+    }
     while lexer.pos < src.len() {
         let start = lexer.pos;
         let kind = lexer.scan();
@@ -245,7 +257,10 @@ impl Lexer<'_> {
                     loop {
                         self.eat_while(|b| b != quote);
                         self.pos += 1;
-                        if self.peek(0) != Some(quote) {
+                        // 次も同じ引用符でも、その先に閉じる引用符がなければ重ねた引用符ではない（`:'a''` で終わる入力）
+                        if self.peek(0) != Some(quote)
+                            || !self.bytes[self.pos + 1..].contains(&quote)
+                        {
                             break;
                         }
                         self.pos += 1;
@@ -595,6 +610,28 @@ mod tests {
         );
         // 閉じていない引用符は変数にしない
         assert_eq!(lex(":'a")[0], (TokenKind::Colon, ":"));
+        // 重ねた引用符の途中で入力が終わっても、閉じたところまでを変数にする
+        assert_eq!(
+            lex(":'a''"),
+            [
+                (TokenKind::PsqlVariable, ":'a'"),
+                (
+                    TokenKind::String {
+                        prefix: StringPrefix::None,
+                        terminated: false
+                    },
+                    "'"
+                ),
+            ]
+        );
+        assert_eq!(
+            lex(":\"a\"\""),
+            [
+                (TokenKind::PsqlVariable, ":\"a\""),
+                (TokenKind::QuotedIdent { terminated: false }, "\""),
+            ]
+        );
+        assert_eq!(lex(":'it''s'"), [(TokenKind::PsqlVariable, ":'it''s'")]);
         // 関数本体の一部では読まない
         let body = tokenize_with_offset("x := :a", 0);
         assert!(body.iter().all(|t| t.kind != TokenKind::PsqlVariable));
@@ -642,6 +679,23 @@ mod tests {
     #[test]
     fn empty_input() {
         assert!(tokenize("").is_empty());
+    }
+
+    #[test]
+    fn leading_bom_is_whitespace() {
+        assert_eq!(
+            tokenize("\u{FEFF}select")
+                .iter()
+                .map(|t| (t.kind, t.text, t.offset))
+                .collect::<Vec<_>>(),
+            [
+                (TokenKind::Whitespace, "\u{FEFF}", 0),
+                (TokenKind::Ident, "select", 3),
+            ]
+        );
+        assert_eq!(tokenize("\u{FEFF}").len(), 1);
+        // 先頭以外では識別子の文字のまま
+        assert_eq!(texts("a \u{FEFF}b"), ["a", "\u{FEFF}b"]);
     }
 
     #[test]
