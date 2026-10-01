@@ -5,6 +5,7 @@
 //! - CREATE INDEX の WHERE は次の行に置く
 //! - ALTER TABLE の操作が 2 つ以上なら、1 行ずつ行頭カンマで並べる
 //! - CREATE TRIGGER は名前の後ろの句を 1 行ずつ並べる
+//! - COMMENT ON は 1 行に書く
 //! - MERGE は USING / WHEN を行頭に置き、ON と各 WHEN の処理を 1 段深くする
 
 use super::{Formatter, as_node, children, is_statement};
@@ -49,6 +50,21 @@ impl<'a> Formatter<'a> {
                 }
                 _ => self.element(element),
             }
+        }
+    }
+
+    /// COMMENT ON は 1 行に書く。名前の直後の引数の括弧は続けて書く（`f(int)`。`CAST (a AS b)` は離す）
+    pub(super) fn comment_stmt(&mut self, stmt: &Node<'a>) {
+        let mut after_name = false;
+        for element in children(stmt) {
+            if after_name && as_node(element).is_some_and(|n| n.kind == NodeKind::ExprList) {
+                self.w.glue();
+            }
+            after_name = matches!(
+                element,
+                Element::Token(t) if matches!(t.kind, TokenKind::Ident | TokenKind::QuotedIdent { .. })
+            );
+            self.element(element);
         }
     }
 

@@ -1241,3 +1241,34 @@ EXECUTE FUNCTION g();
         "CREATE TRIGGER t\nAFTER INSERT ON x\nREFERENCING NEW row as r\nFOR EACH ROW\nEXECUTE FUNCTION f()\n",
     );
 }
+
+#[test]
+fn comment_on_statements() {
+    check(
+        "comment on table public.t is 'x';\ncomment on column t.c is null;\ncomment on materialized view mv is E'a\\'b';",
+        "COMMENT ON TABLE public.t IS 'x';\nCOMMENT ON COLUMN t.c IS NULL;\nCOMMENT ON MATERIALIZED VIEW mv IS E'a\\'b';\n",
+    );
+    // 引数の括弧は名前に続ける。ON 表は同じ行
+    check(
+        "comment on function s.f(int, text) is 'f';\ncomment on constraint c on t is 'x';\ncomment on trigger trg on t is $$x$$;",
+        "COMMENT ON FUNCTION s.f(int, text) IS 'f';\nCOMMENT ON CONSTRAINT c ON t IS 'x';\nCOMMENT ON TRIGGER trg ON t IS $$x$$;\n",
+    );
+    check(
+        "comment on cast (text as int4) is 'x';\ncomment on large object 123 is 'x';\ncomment on operator + (int, int) is 'x';",
+        "COMMENT ON CAST (text AS int4) IS 'x';\nCOMMENT ON LARGE OBJECT 123 IS 'x';\nCOMMENT ON OPERATOR + (int, int) IS 'x';\n",
+    );
+    // オブジェクトの種類と同じ綴りの名前はそのまま
+    check(
+        "comment on table data is 'x';\ncomment on column trigger.x is 'x';\ncomment on schema schema is 'x';",
+        "COMMENT ON TABLE data IS 'x';\nCOMMENT ON COLUMN trigger.x IS 'x';\nCOMMENT ON SCHEMA schema IS 'x';\n",
+    );
+    check(
+        "comment on transform for text language plperl is 'a';\ncomment on operator family text using btree is 'a';\ncomment on constraint c on domain d is 'a';",
+        "COMMENT ON TRANSFORM FOR text LANGUAGE plperl IS 'a';\nCOMMENT ON OPERATOR FAMILY text USING btree IS 'a';\nCOMMENT ON CONSTRAINT c ON DOMAIN d IS 'a';\n",
+    );
+    // psql の変数や解釈できない部分は、元のまま同じ行に書く
+    check(
+        "comment on table :tbl is 'x';\ncomment on column :tbl.c is :'v';\ncomment on table t is U&'d\\0061t' uescape '!';\ncomment on column t.c is 'x' 'y';",
+        "COMMENT ON TABLE :tbl IS 'x';\nCOMMENT ON COLUMN :tbl.c IS :'v';\nCOMMENT ON TABLE t IS U&'d\\0061t' uescape '!';\nCOMMENT ON COLUMN t.c IS 'x' 'y';\n",
+    );
+}

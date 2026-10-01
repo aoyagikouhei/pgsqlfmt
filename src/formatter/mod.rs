@@ -216,6 +216,7 @@ impl<'a> Formatter<'a> {
             NodeKind::DropStmt => self.inline_glued(stmt, |e| is_node(e, NodeKind::ExprList)),
             NodeKind::MergeStmt => self.merge_stmt(stmt, base),
             NodeKind::CreateTriggerStmt => self.create_trigger(stmt, base),
+            NodeKind::CommentStmt => self.comment_stmt(stmt),
             NodeKind::DoStmt => self.do_stmt(stmt, base),
             _ => self.node(stmt),
         }
@@ -466,6 +467,7 @@ fn is_statement(kind: NodeKind) -> bool {
             | NodeKind::AlterTableStmt
             | NodeKind::DropStmt
             | NodeKind::CreateTriggerStmt
+            | NodeKind::CommentStmt
             | NodeKind::CreateFunctionStmt
             | NodeKind::DoStmt
             | NodeKind::CallStmt

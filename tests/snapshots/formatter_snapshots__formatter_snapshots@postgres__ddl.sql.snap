@@ -102,6 +102,15 @@ CREATE TRIGGER expensive_insert
 INSTEAD OF INSERT ON expensive_products
 FOR EACH ROW
 EXECUTE FUNCTION noop_trigger();
+COMMENT ON TABLE products IS 'products';
+COMMENT ON COLUMN products.price IS 'price'
+    ' (tax excluded)';
+COMMENT ON FUNCTION products_upper_name() IS E'upper\'s';
+COMMENT ON CONSTRAINT products_name_check ON products IS $$check$$;
+COMMENT ON TRIGGER products_upper_name ON products IS 'trigger';
+COMMENT ON MATERIALIZED VIEW product_counts IS 'counts';
+COMMENT ON INDEX product_tags_tag_idx IS 'tag index';
+COMMENT ON COLUMN products.code IS NULL;
 INSERT INTO products (code, name, price, category)
 VALUES
     ('a', 'apple', 100, 'food')

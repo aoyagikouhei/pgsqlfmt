@@ -90,6 +90,8 @@ pub enum NodeKind {
     AlterTableStmt,
     AlterTableAction,
     DropStmt,
+    /// `COMMENT ON object IS 'text'`
+    CommentStmt,
     /// `CREATE [OR REPLACE] [CONSTRAINT] TRIGGER`
     CreateTriggerStmt,
     /// トリガーの句（`BEFORE ... ON table` / `FOR EACH ROW` / `WHEN (...)` / `EXECUTE FUNCTION f()` など）

@@ -133,6 +133,57 @@ const OBJECT_TYPES: &[&str] = &[
     "view",
 ];
 
+/// COMMENT ON の後ろのオブジェクトの種類（PostgreSQL 18 の文書の一覧）。長いものから順に当てる
+const COMMENT_OBJECT_TYPES: &[&[&str]] = &[
+    &["text", "search", "configuration"],
+    &["text", "search", "dictionary"],
+    &["text", "search", "parser"],
+    &["text", "search", "template"],
+    &["foreign", "data", "wrapper"],
+    &["access", "method"],
+    &["event", "trigger"],
+    &["foreign", "table"],
+    &["large", "object"],
+    &["materialized", "view"],
+    &["operator", "class"],
+    &["operator", "family"],
+    &["procedural", "language"],
+    &["transform", "for"],
+    &["aggregate"],
+    &["cast"],
+    &["collation"],
+    &["column"],
+    &["constraint"],
+    &["conversion"],
+    &["database"],
+    &["domain"],
+    &["extension"],
+    &["function"],
+    &["index"],
+    &["language"],
+    &["operator"],
+    &["policy"],
+    &["procedure"],
+    &["publication"],
+    &["role"],
+    &["routine"],
+    &["rule"],
+    &["schema"],
+    &["sequence"],
+    &["server"],
+    &["statistics"],
+    &["subscription"],
+    &["table"],
+    &["tablespace"],
+    &["trigger"],
+    &["type"],
+    &["view"],
+];
+
+/// COMMENT ON の名前の後ろでキーワードにする語
+/// （`ON [DOMAIN] table` / `OPERATOR CLASS c USING btree` / `TRANSFORM FOR t LANGUAGE l`）
+const COMMENT_NAME_KEYWORDS: &[&str] = &["on", "domain", "using", "language"];
+
 /// CREATE TRIGGER の句の始まり
 const TRIGGER_CLAUSE_STARTS: &[&str] = &[
     "before",
@@ -483,6 +534,52 @@ impl Parser<'_> {
         if self.eat_kw("on") {
             self.name_path();
         }
+    }
+
+    /// `COMMENT ON object_type name [(args)] [ON table] IS {'text' | NULL}`
+    pub(super) fn comment_stmt(&mut self) {
+        self.start_node(NodeKind::CommentStmt);
+        self.bump_kw();
+        self.bump_kw();
+        // 種類は一覧の語の並びだけをキーワードにする（`TABLE data` / `FAMILY text` の名前は残す）
+        if let Some(words) = COMMENT_OBJECT_TYPES
+            .iter()
+            .find(|words| words.iter().enumerate().all(|(i, w)| self.nth_kw(i, w)))
+        {
+            for _ in 0..words.len() {
+                self.bump_kw();
+            }
+        }
+        let at_name_end = |p: &Self| p.at_statement_end() || p.at_kw("is");
+        while !at_name_end(self) {
+            if self.at_any_kw(COMMENT_NAME_KEYWORDS) {
+                self.bump_kw();
+            } else if self.at(TokenKind::LParen) {
+                self.ddl_paren();
+            } else if self.name_path() == 0 {
+                // `:tbl` のような psql の変数や演算子は、分けずに元のまま書く
+                self.start_node(NodeKind::Error);
+                while !at_name_end(self)
+                    && !self.at_any_kw(COMMENT_NAME_KEYWORDS)
+                    && !self.at(TokenKind::LParen)
+                {
+                    self.bump_balanced();
+                }
+                self.finish_node();
+            }
+        }
+        if self.eat_kw("is") {
+            self.expr();
+        }
+        // `:'v'` / `UESCAPE '!'` など、式として読めなかった残りも同じ行に元のまま書く
+        if !self.at_statement_end() {
+            self.start_node(NodeKind::Error);
+            while !self.at_statement_end() {
+                self.bump_balanced();
+            }
+            self.finish_node();
+        }
+        self.finish_node();
     }
 
     /// `ALTER TABLE [IF EXISTS] [ONLY] name [*] action, ...`

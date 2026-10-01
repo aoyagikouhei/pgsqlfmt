@@ -23,6 +23,15 @@ create or replace trigger products_upper_name before insert or update of name on
 create constraint trigger products_check after insert on products deferrable initially deferred for each row execute procedure noop_trigger();
 create trigger tags_changed after update on tags referencing old table as old_rows new table new_rows for each statement execute function noop_trigger('x', 1);
 create trigger expensive_insert instead of insert on expensive_products for each row execute function noop_trigger();
+comment on table products is 'products';
+comment on column products.price is 'price'
+  ' (tax excluded)';
+comment on function products_upper_name() is E'upper\'s';
+comment on constraint products_name_check on products is $$check$$;
+comment on trigger products_upper_name on products is 'trigger';
+comment on materialized view product_counts is 'counts';
+comment on index product_tags_tag_idx is 'tag index';
+comment on column products.code is null;
 insert into products (code, name, price, category) values ('a', 'apple', 100, 'food'), ('h', 'hammer', 2000, 'tool');
 merge into products as p using (values ('a', 150::numeric), ('b', 5::numeric)) as s (code, price) on s.code = p.code
   when matched and s.price > 1000 then delete

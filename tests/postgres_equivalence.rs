@@ -7,7 +7,7 @@
 //!   （PL/pgSQL の本体は作成時に構文が検査され、呼び出しの結果は後続の文で比べる）
 //! - それ以外（DO / CALL など）: 実行した結果（NOTICE やエラーを含む）
 //! - 最後に public スキーマのカタログ（列・型・既定値・制約・インデックス・ビューの定義）を比べる。
-//!   トリガーの定義も比べる。DDL の意味の違いは実行結果（`CREATE TABLE` など）には出ないので、ここで確かめる
+//!   トリガーの定義とコメント（COMMENT ON）も比べる。DDL の意味の違いは実行結果（`CREATE TABLE` など）には出ないので、ここで確かめる
 //!
 //! psql は `ON_ERROR_ROLLBACK=on` で動かすので、エラーになった文があっても続きの文を比べられる。
 //! 環境変数 `PGHOST` がなければ（dev コンテナの外では）このテストは何もしない。
@@ -144,6 +144,8 @@ SELECT c.relname, c.relkind, pg_get_viewdef(c.oid), c.reloptions, pg_get_partkey
 FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace ORDER BY 1;
 SELECT tgrelid::regclass::text, tgname, pg_get_triggerdef(oid), tgenabled
 FROM pg_trigger WHERE NOT tgisinternal ORDER BY 1, 2;
+SELECT pg_describe_object(classoid, objoid, objsubid), description
+FROM pg_description WHERE objoid >= 16384 ORDER BY 1;
 ";
 
 /// psql でスクリプトを流し、出力（エラーや NOTICE を含む）を返す

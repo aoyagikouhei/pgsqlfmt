@@ -1039,3 +1039,15 @@ fn create_trigger_statements() {
         "(CreateTriggerStmt CREATE TRIGGER t (TriggerClause AFTER INSERT ON x) (Error bogus words) (TriggerClause FOR EACH ROW))"
     );
 }
+
+#[test]
+fn comment_statements() {
+    assert_eq!(
+        stmts("COMMENT ON FUNCTION s.f(int) IS 'x'"),
+        "(CommentStmt COMMENT ON FUNCTION s . f (ExprList ( int )) IS (Literal 'x'))"
+    );
+    assert_eq!(
+        stmts("COMMENT ON CONSTRAINT c ON t IS NULL"),
+        "(CommentStmt COMMENT ON CONSTRAINT c ON t IS (Literal NULL))"
+    );
+}
