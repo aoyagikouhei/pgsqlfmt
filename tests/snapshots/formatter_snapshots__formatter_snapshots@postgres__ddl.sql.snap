@@ -4,6 +4,30 @@ expression: format(&src)
 input_file: tests/fixtures/postgres/ddl.sql
 ---
 -- 実機検証用。DDL と MERGE。整形の前後でカタログ上の定義と結果が同じになること。
+CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION postgres;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA app;
+CREATE SEQUENCE IF NOT EXISTS app.order_seq
+AS bigint
+INCREMENT BY 2
+MINVALUE -10
+NO MAXVALUE
+START WITH 10
+CACHE 5
+NO CYCLE;
+SELECT
+    nextval('app.order_seq')
+  , nextval('app.order_seq');
+CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
+CREATE TYPE pair AS (
+    a int
+  , b text COLLATE "C"
+);
+CREATE TYPE float_range AS RANGE (subtype = float8, subtype_diff = float8mi);
+CREATE TYPE shell_type;
+SELECT
+    'ok'::mood
+  , ROW(1, 'x')::pair
+  , float_range(1, 2);
 CREATE TABLE products (
     id bigint GENERATED ALWAYS AS IDENTITY (START WITH 100) PRIMARY KEY
   , sku text NOT NULL UNIQUE
@@ -62,6 +86,7 @@ ALTER TABLE products
   , ALTER COLUMN created_on TYPE timestamp USING created_on::timestamp;
 ALTER TABLE products RENAME COLUMN sku TO code;
 ALTER TABLE product_tags RENAME TO tags;
+ALTER TABLE cheap RENAME COLUMN sku TO key;
 CREATE FUNCTION products_upper_name()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -111,6 +136,17 @@ COMMENT ON TRIGGER products_upper_name ON products IS 'trigger';
 COMMENT ON MATERIALIZED VIEW product_counts IS 'counts';
 COMMENT ON INDEX product_tags_tag_idx IS 'tag index';
 COMMENT ON COLUMN products.code IS NULL;
+CREATE UNLOGGED SEQUENCE products_seq
+START 100
+OWNED BY products.id;
+GRANT SELECT, INSERT (name, price), UPDATE ON TABLE products, product_copy TO pg_read_all_data WITH GRANT OPTION;
+GRANT USAGE, CREATE ON SCHEMA app TO PUBLIC;
+GRANT EXECUTE ON FUNCTION products_upper_name() TO pg_read_all_data, PUBLIC;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA app TO pg_read_all_data;
+REVOKE GRANT OPTION FOR INSERT (name) ON products FROM pg_read_all_data CASCADE;
+REVOKE CREATE ON SCHEMA app FROM PUBLIC;
+GRANT pg_read_all_data TO postgres WITH ADMIN OPTION GRANTED BY CURRENT_USER;
+REVOKE ADMIN OPTION FOR pg_read_all_data FROM postgres CASCADE;
 INSERT INTO products (code, name, price, category)
 VALUES
     ('a', 'apple', 100, 'food')
@@ -149,5 +185,23 @@ VALUES (1, 'c', 'copy', 1, 'food');
 TRUNCATE TABLE ONLY product_copy, cheap RESTART IDENTITY CASCADE;
 SELECT count(*)
 FROM product_copy;
+create domain posint as int;
+ALTER SEQUENCE app.order_seq
+INCREMENT BY 3
+RESTART WITH 50
+NO CYCLE;
+ALTER SEQUENCE app.order_seq OWNER TO postgres;
+ALTER INDEX product_tags_tag_idx RENAME TO tags_tag_idx;
+ALTER VIEW expensive_products RENAME COLUMN name TO label;
+ALTER MATERIALIZED VIEW product_counts SET SCHEMA app;
+ALTER FUNCTION products_upper_name() SECURITY DEFINER SET search_path = public;
+ALTER TYPE mood ADD VALUE IF NOT EXISTS 'meh' BEFORE 'ok';
+ALTER TYPE mood RENAME VALUE 'sad' TO 'blue';
+ALTER TYPE pair ADD ATTRIBUTE c int, DROP ATTRIBUTE IF EXISTS b CASCADE;
+ALTER DOMAIN posint SET DEFAULT 1;
+ALTER DOMAIN posint ADD CONSTRAINT posint_check CHECK (value > 0) NOT VALID;
+ALTER SCHEMA app OWNER TO postgres;
+ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO pg_read_all_data;
+ALTER TRIGGER products_check ON products RENAME TO products_check2;
 DROP INDEX IF EXISTS products_name_idx;
 DROP VIEW IF EXISTS expensive_products CASCADE;

@@ -16,6 +16,7 @@ mod plpgsql;
 mod select;
 #[cfg(test)]
 mod tests;
+mod utility;
 
 use std::cell::Cell;
 
@@ -344,12 +345,32 @@ impl<'a> Parser<'a> {
             self.create_view_stmt();
         } else if self.at_create_trigger() {
             self.create_trigger_stmt();
+        } else if self.at_create_sequence() {
+            self.create_sequence_stmt();
+        } else if self.at_words(&[&["create"], &["type"]]) {
+            self.create_type_stmt();
+        } else if self.at_words(&[&["create"], &["schema"]]) {
+            self.create_schema_stmt();
+        } else if self.at_words(&[&["create"], &["extension"]]) {
+            self.create_extension_stmt();
+        } else if self.at_kw("grant") || self.at_kw("revoke") {
+            self.grant_stmt();
         } else if self.at_kw("truncate") {
             self.truncate_stmt();
         } else if self.at_kw("comment") && self.nth_kw(1, "on") {
             self.comment_stmt();
         } else if self.at_kw("alter") && self.nth_kw(1, "table") {
             self.alter_table_stmt();
+        } else if self.at_kw("copy") {
+            self.copy_stmt();
+        } else if self.at_any_kw(&["set", "reset", "show"]) {
+            self.set_stmt();
+        } else if self.at_kw("explain") {
+            self.explain_stmt();
+        } else if self.at_transaction_stmt() {
+            self.transaction_stmt();
+        } else if self.at_kw("alter") {
+            self.alter_stmt();
         } else if self.at_kw("drop") {
             self.drop_stmt();
         } else if !self.statement_body() {
@@ -357,7 +378,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn raw_statement(&mut self) {
+    pub(super) fn raw_statement(&mut self) {
         self.start_node(NodeKind::RawStatement);
         while !self.at_statement_end() {
             self.bump();

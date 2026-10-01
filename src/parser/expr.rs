@@ -300,7 +300,7 @@ impl Parser<'_> {
                 self.paren_primary();
                 true
             }
-            TokenKind::QuotedIdent { .. } => {
+            TokenKind::QuotedIdent { .. } | TokenKind::PsqlVariable => {
                 self.name_or_call();
                 true
             }
@@ -436,8 +436,10 @@ impl Parser<'_> {
         let mut parts = 1;
         while self.at(TokenKind::Dot)
             && self.nth(1).is_some_and(|t| {
-                matches!(t.kind, TokenKind::Ident | TokenKind::QuotedIdent { .. })
-                    || (t.kind == TokenKind::Operator && t.text == "*")
+                matches!(
+                    t.kind,
+                    TokenKind::Ident | TokenKind::QuotedIdent { .. } | TokenKind::PsqlVariable
+                ) || (t.kind == TokenKind::Operator && t.text == "*")
             })
         {
             self.bump();
@@ -447,9 +449,23 @@ impl Parser<'_> {
         parts
     }
 
+    /// n 番目が名前（識別子・引用符付き識別子・psql の変数）か
+    pub(super) fn nth_is_any_name(&self, n: usize) -> bool {
+        self.nth(n).is_some_and(|t| {
+            matches!(
+                t.kind,
+                TokenKind::Ident | TokenKind::QuotedIdent { .. } | TokenKind::PsqlVariable
+            )
+        })
+    }
+
     pub(super) fn at_name(&self) -> bool {
-        self.current()
-            .is_some_and(|t| matches!(t.kind, TokenKind::Ident | TokenKind::QuotedIdent { .. }))
+        self.current().is_some_and(|t| {
+            matches!(
+                t.kind,
+                TokenKind::Ident | TokenKind::QuotedIdent { .. } | TokenKind::PsqlVariable
+            )
+        })
     }
 
     /// 関数呼び出しの `(...)`。`arg_bp` は引数の式の最小の結合力。

@@ -59,6 +59,8 @@ pub(super) struct Writer<'a> {
     keyword_case: KeywordCase,
     /// 出力の最後の空白を削るとき、ここより前は削らない（COPY のデータの行末の空白は値の一部）
     keep_len: usize,
+    /// 直前に書いたトークンが `:` なら、元の入力でのその終わりの位置
+    after_colon: Option<usize>,
 }
 
 /// 1 行で書いたときに行幅に収まるかの測定
@@ -109,6 +111,7 @@ impl<'a> Writer<'a> {
             measure: None,
             keyword_case,
             keep_len: 0,
+            after_colon: None,
         };
         w.attach_comments(root);
         w
@@ -366,7 +369,16 @@ impl<'a> Writer<'a> {
         for comment in attached.leading {
             self.leading_comment(&comment);
         }
+        // `a[2: n]` のように元の入力で `:` の後ろに空白があれば残す。詰めると psql が `:n` を変数として置き換える
+        let forms_variable = text.bytes().next().is_some_and(|b| {
+            b.is_ascii_alphabetic() || b == b'_' || b >= 0x80 || b == b'\'' || b == b'"'
+        });
+        if forms_variable && self.after_colon.is_some_and(|end| token.offset > end) {
+            self.glue_next = false;
+        }
         self.word(text, token.kind, outdent);
+        self.after_colon =
+            (token.kind == TokenKind::Colon).then(|| token.offset + token.text.len());
         for comment in attached.trailing {
             self.trailing_comment(&comment);
         }

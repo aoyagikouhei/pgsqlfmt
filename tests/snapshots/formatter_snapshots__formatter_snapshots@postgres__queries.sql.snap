@@ -216,3 +216,38 @@ SELECT c.id
 FROM customers AS c TABLESAMPLE bernoulli (100) REPEATABLE (1)
 WHERE c.id > 0
 ORDER BY c.id;
+
+-- ユーティリティ文（外側のトランザクションを壊す BEGIN / COMMIT は入れない）
+SET search_path = public, pg_catalog;
+SET LOCAL work_mem TO '64MB';
+SHOW work_mem;
+RESET work_mem;
+SHOW work_mem;
+EXPLAIN (COSTS off, VERBOSE false)
+SELECT id
+FROM customers
+WHERE id = 1
+ORDER BY id;
+EXPLAIN (COSTS off)
+UPDATE customers
+SET score = score + 1
+WHERE active;
+SAVEPOINT sp1;
+UPDATE customers
+SET score = 99
+WHERE id = 1;
+ROLLBACK TO SAVEPOINT sp1;
+RELEASE sp1;
+SELECT
+    id
+  , score
+FROM customers
+ORDER BY id;
+COPY (
+    SELECT
+        id
+      , "Name"
+    FROM customers
+    ORDER BY id
+) TO STDOUT WITH (FORMAT csv, HEADER true);
+COPY customers (id, "Name") TO STDOUT;

@@ -351,7 +351,7 @@ impl Parser<'_> {
         }
         let only = self.eat_kw("only");
         let is_name = self.current().is_some_and(|t| match t.kind {
-            TokenKind::QuotedIdent { .. } => true,
+            TokenKind::QuotedIdent { .. } | TokenKind::PsqlVariable => true,
             TokenKind::Ident => !is_reserved(t.text),
             _ => false,
         });

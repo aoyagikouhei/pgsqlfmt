@@ -632,8 +632,8 @@ fn incomplete_dml_is_kept() {
 #[test]
 fn statements_and_raw_statements() {
     assert_eq!(
-        stmts("CREATE SEQUENCE s START 1; SELECT 1;;"),
-        "(RawStatement CREATE SEQUENCE s START 1) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ; ;"
+        stmts("VACUUM t (a); SELECT 1;;"),
+        "(RawStatement VACUUM t ( a )) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ; ;"
     );
     assert_eq!(stmts(""), "");
 }
@@ -898,7 +898,7 @@ fn create_function_statements() {
     // LANGUAGE がなければ SQL として解析する。LANGUAGE は文の終わりまでしか探さない
     assert_eq!(
         stmts("CREATE FUNCTION f() RETURNS int AS $$ BEGIN $$; DO LANGUAGE plpgsql $$BEGIN END$$"),
-        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS (FunctionBody $$ (RawStatement BEGIN) $$))) ; (DoStmt DO LANGUAGE plpgsql (FunctionBody $$ (PlBlock BEGIN END) $$))"
+        "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS (FunctionBody $$ (TransactionStmt BEGIN) $$))) ; (DoStmt DO LANGUAGE plpgsql (FunctionBody $$ (PlBlock BEGIN END) $$))"
     );
     // SQL 標準の本体 `RETURN expr`
     assert_eq!(

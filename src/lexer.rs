@@ -55,6 +55,9 @@ pub enum TokenKind {
     ColonEquals,
     /// どの規則にも当てはまらない 1 文字
     Unknown,
+    /// psql の変数 `:name` / `:'name'` / `:"name"`。psql が置き換えるので 1 つの名前として扱う。
+    /// 関数本体の中（psql は置き換えない）と、`a[1:n]` のように名前や数字の直後の `:` では読まない
+    PsqlVariable,
     /// `COPY ... FROM STDIN;` の直後から `\.` だけの行までのデータ（`;` と同じ行の残りを含む）
     CopyData,
 }
@@ -94,7 +97,7 @@ pub struct Token<'a> {
 }
 
 /// `src` の一部を字句解析する。トークンの位置は `base` を足した、元の入力での位置になる。
-/// 関数本体などの一部なので、COPY のデータは読まない。
+/// 関数本体などの一部なので、COPY のデータと psql の変数は読まない。
 pub fn tokenize_with_offset(src: &str, base: usize) -> Vec<Token<'_>> {
     let mut tokens = scan_all(src, false);
     for token in &mut tokens {
@@ -107,11 +110,13 @@ pub fn tokenize(src: &str) -> Vec<Token<'_>> {
     scan_all(src, true)
 }
 
-fn scan_all(src: &str, copy_data: bool) -> Vec<Token<'_>> {
+/// `top_level` は入力全体（psql に渡すスクリプト）か。COPY のデータと psql の変数はそこでだけ読む
+fn scan_all(src: &str, top_level: bool) -> Vec<Token<'_>> {
     let mut lexer = Lexer {
         src,
         bytes: src.as_bytes(),
         pos: 0,
+        psql_variables: top_level,
     };
     let mut tokens = Vec::new();
     while lexer.pos < src.len() {
@@ -119,7 +124,7 @@ fn scan_all(src: &str, copy_data: bool) -> Vec<Token<'_>> {
         let kind = lexer.scan();
         // `COPY ... FROM STDIN;` の直後からデータの終わりまでを 1 つのトークンにする。
         // 最後の改行のほかに何も残っていなければデータはない
-        let copy_follows = copy_data
+        let copy_follows = top_level
             && kind == TokenKind::Semicolon
             && ends_copy_from_stdin(&tokens)
             && !strip_last_newline(&src[lexer.pos..]).is_empty();
@@ -173,6 +178,7 @@ struct Lexer<'a> {
     src: &'a str,
     bytes: &'a [u8],
     pos: usize,
+    psql_variables: bool,
 }
 
 impl Lexer<'_> {
@@ -207,6 +213,52 @@ impl Lexer<'_> {
         self.pos = start + strip_last_newline(&self.src[start..]).len();
     }
 
+    /// `:` から psql の変数が始まるか
+    fn at_psql_variable(&self) -> bool {
+        let prev = self.pos.checked_sub(1).map(|i| self.bytes[i]);
+        let after_value = prev
+            .is_some_and(|p| is_ident_cont(p) || matches!(p, b')' | b']' | b'[' | b'\'' | b'"'));
+        self.psql_variables && !after_value && self.psql_variable_follows()
+    }
+
+    /// 現在の `:` の直後が、変数の名前か、後ろで閉じている引用符か
+    fn psql_variable_follows(&self) -> bool {
+        match self.peek(1) {
+            Some(b'\'' | b'"') => {
+                let quote = self.bytes[self.pos + 1];
+                self.bytes[self.pos + 2..].contains(&quote)
+            }
+            Some(c) => is_ident_start(c),
+            None => false,
+        }
+    }
+
+    /// `:name` / `:'name'` / `:"name"`
+    /// `:a:b` のように続けて書いた変数は、psql がそれぞれを置き換えてつなぐので 1 つのトークンにする
+    fn psql_variable(&mut self) -> TokenKind {
+        loop {
+            self.pos += 1;
+            match self.bytes[self.pos] {
+                quote @ (b'\'' | b'"') => {
+                    // 引用符を重ねた `:'it''s'` は 1 つの名前
+                    self.pos += 1;
+                    loop {
+                        self.eat_while(|b| b != quote);
+                        self.pos += 1;
+                        if self.peek(0) != Some(quote) {
+                            break;
+                        }
+                        self.pos += 1;
+                    }
+                }
+                _ => self.eat_while(|b| is_ident_start(b) || is_dec_digit(b)),
+            }
+            if !(self.peek(0) == Some(b':') && self.psql_variable_follows()) {
+                return TokenKind::PsqlVariable;
+            }
+        }
+    }
+
     /// 次のトークンを 1 つ読み、その種類を返す。`pos` は必ず進む。
     fn scan(&mut self) -> TokenKind {
         let c = self.bytes[self.pos];
@@ -230,6 +282,7 @@ impl Lexer<'_> {
             b':' => match self.peek(1) {
                 Some(b':') => self.punct(2, TokenKind::DoubleColon),
                 Some(b'=') => self.punct(2, TokenKind::ColonEquals),
+                _ if self.at_psql_variable() => self.psql_variable(),
                 _ => self.punct(1, TokenKind::Colon),
             },
             b'(' => self.punct(1, TokenKind::LParen),
@@ -504,6 +557,47 @@ mod tests {
         let tokens = lex(src);
         assert_eq!(tokens.len(), 1, "{src:?} -> {tokens:?}");
         tokens[0].0
+    }
+
+    #[test]
+    fn psql_variables() {
+        assert_eq!(
+            lex("select :a, :'b', :\"c\", x[1:n], y[:n], z::int, w :=1"),
+            [
+                (TokenKind::Ident, "select"),
+                (TokenKind::PsqlVariable, ":a"),
+                (TokenKind::Comma, ","),
+                (TokenKind::PsqlVariable, ":'b'"),
+                (TokenKind::Comma, ","),
+                (TokenKind::PsqlVariable, ":\"c\""),
+                (TokenKind::Comma, ","),
+                (TokenKind::Ident, "x"),
+                (TokenKind::LBracket, "["),
+                (TokenKind::Number, "1"),
+                (TokenKind::Colon, ":"),
+                (TokenKind::Ident, "n"),
+                (TokenKind::RBracket, "]"),
+                (TokenKind::Comma, ","),
+                (TokenKind::Ident, "y"),
+                (TokenKind::LBracket, "["),
+                (TokenKind::Colon, ":"),
+                (TokenKind::Ident, "n"),
+                (TokenKind::RBracket, "]"),
+                (TokenKind::Comma, ","),
+                (TokenKind::Ident, "z"),
+                (TokenKind::DoubleColon, "::"),
+                (TokenKind::Ident, "int"),
+                (TokenKind::Comma, ","),
+                (TokenKind::Ident, "w"),
+                (TokenKind::ColonEquals, ":="),
+                (TokenKind::Number, "1"),
+            ]
+        );
+        // 閉じていない引用符は変数にしない
+        assert_eq!(lex(":'a")[0], (TokenKind::Colon, ":"));
+        // 関数本体の一部では読まない
+        let body = tokenize_with_offset("x := :a", 0);
+        assert!(body.iter().all(|t| t.kind != TokenKind::PsqlVariable));
     }
 
     #[test]

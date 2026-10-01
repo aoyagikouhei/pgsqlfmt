@@ -54,3 +54,19 @@ select 'con'
 
 -- 抽出方法は入力のまま、TABLESAMPLE と REPEATABLE はキーワード
 select c.id from customers as c tablesample bernoulli (100) repeatable (1) where c.id > 0 order by c.id;
+
+-- ユーティリティ文（外側のトランザクションを壊す BEGIN / COMMIT は入れない）
+set search_path = public, pg_catalog;
+set local work_mem to '64MB';
+show work_mem;
+reset work_mem;
+show work_mem;
+explain (costs off, verbose false) select id from customers where id = 1 order by id;
+explain (costs off) update customers set score = score + 1 where active;
+savepoint sp1;
+update customers set score = 99 where id = 1;
+rollback to savepoint sp1;
+release sp1;
+select id, score from customers order by id;
+copy (select id, "Name" from customers order by id) to stdout with (format csv, header true);
+copy customers (id, "Name") to stdout;

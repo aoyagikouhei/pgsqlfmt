@@ -64,8 +64,15 @@ repos:
   ALTER TABLE / DROP / MERGE にも対応する
 - CREATE TRIGGER は、タイミングとイベント・FOR EACH・WHEN・EXECUTE などの句を 1 行ずつにする
 - COMMENT ON は 1 行にする（オブジェクトの種類と IS・NULL をキーワードとして大文字にする）
-- TRUNCATE は 1 行にする
-- 対応していない文（CREATE SEQUENCE / GRANT など）や解釈できない部分は、元のテキストのまま出す
+- TRUNCATE / GRANT / REVOKE は 1 行にする（権限・オブジェクトの種類・PUBLIC などをキーワードとして大文字にする）
+- ALTER TABLE 以外の ALTER（INDEX / VIEW / FUNCTION / TYPE / DOMAIN / SCHEMA / ROLE / DEFAULT PRIVILEGES など）は 1 行にする。
+  ALTER SEQUENCE のオプションは CREATE SEQUENCE と同じく 1 行ずつにする
+- psql の変数（`:name` / `:'name'` / `:"name"`）は 1 つの名前として扱い、前の語とくっつけない
+- COPY / SET / RESET / SHOW / トランザクション制御（BEGIN / COMMIT / ROLLBACK / SAVEPOINT など）は 1 行にする。
+  `COPY (query)` の問い合わせは副問い合わせと同じく複数行にする。EXPLAIN は対象の文を次の行から整形する
+- CREATE SEQUENCE はオプションを 1 行ずつにする。CREATE TYPE の複合型の列は CREATE TABLE と同じく 1 行ずつ並べる。
+  CREATE SCHEMA / CREATE EXTENSION は 1 行にする
+- 対応していない文（VACUUM / LOCK など）や解釈できない部分は、元のテキストのまま出す
 - `COPY ... FROM STDIN;` に続くデータ（`\.` だけの行まで）は、元のテキストのまま出す
 
 

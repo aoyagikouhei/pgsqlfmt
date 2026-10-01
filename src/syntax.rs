@@ -90,6 +90,27 @@ pub enum NodeKind {
     AlterTableStmt,
     AlterTableAction,
     DropStmt,
+    /// `CREATE [TEMP | UNLOGGED] SEQUENCE`
+    CreateSequenceStmt,
+    /// シーケンスのオプション（`INCREMENT BY 2` / `NO CYCLE` / `OWNED BY t.c` など）
+    SequenceOption,
+    /// `CREATE TYPE name [AS ENUM (...) | AS (...) | AS RANGE (...) | (...)]`
+    CreateTypeStmt,
+    /// `CREATE SCHEMA` / `CREATE EXTENSION`
+    CreateSchemaStmt,
+    CreateExtensionStmt,
+    /// `COPY ... {FROM | TO} ...`
+    CopyStmt,
+    /// `SET` / `RESET` / `SHOW`
+    SetStmt,
+    /// `EXPLAIN [options] statement`
+    ExplainStmt,
+    /// `BEGIN` / `COMMIT` / `ROLLBACK` / `SAVEPOINT` などのトランザクション制御
+    TransactionStmt,
+    /// `ALTER TABLE` 以外の `ALTER object name action ...`
+    AlterStmt,
+    /// `GRANT ... ON ... TO ...` / `REVOKE ... ON ... FROM ...`（ロールの付与も）
+    GrantStmt,
     /// `TRUNCATE [TABLE] name, ... [RESTART IDENTITY] [CASCADE]`
     TruncateStmt,
     /// `COMMENT ON object IS 'text'`

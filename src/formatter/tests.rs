@@ -443,8 +443,8 @@ fn blank_lines_around_comments_are_kept() {
 #[test]
 fn raw_statements_are_kept_verbatim() {
     check(
-        "create sequence s\n  start 1 -- 開始\n;\nselect 1",
-        "create sequence s\n  start 1 -- 開始\n;\nSELECT 1\n",
+        "vacuum t\n  (a) -- 対象\n;\nselect 1",
+        "vacuum t\n  (a) -- 対象\n;\nSELECT 1\n",
     );
 }
 
@@ -1145,7 +1145,7 @@ fn copy_from_stdin_data_is_kept_as_is() {
     // データ行の引用符やセミコロンで、後ろの文の整形が止まらない
     check(
         "copy t (a, b) from stdin;\nit's;\tx\n\\.\nselect   2 from t;\n",
-        "copy t (a, b) from stdin;\nit's;\tx\n\\.\nSELECT 2\nFROM t;\n",
+        "COPY t (a, b) FROM STDIN;\nit's;\tx\n\\.\nSELECT 2\nFROM t;\n",
     );
     // 空行・行末の空白もデータのまま。終わりの印の後の空行は残る
     check(
@@ -1155,26 +1155,26 @@ fn copy_from_stdin_data_is_kept_as_is() {
     // 終わりの印がなければ入力の終わりまでがデータ
     check(
         "copy t from stdin;\n1\t2\n'\n",
-        "copy t from stdin;\n1\t2\n'\n",
+        "COPY t FROM STDIN;\n1\t2\n'\n",
     );
     // 2 つ目以降の COPY のデータも入力のまま
     check(
         "copy a from stdin;\n1\n\\.\ncopy b from stdin;\nselect   1  ;\n2\tdon't\n\\.\nselect   1;\n",
-        "copy a from stdin;\n1\n\\.\ncopy b from stdin;\nselect   1  ;\n2\tdon't\n\\.\nSELECT 1;\n",
+        "COPY a FROM STDIN;\n1\n\\.\nCOPY b FROM STDIN;\nselect   1  ;\n2\tdon't\n\\.\nSELECT 1;\n",
     );
     // 終わりの印がなければ、行末のタブ（空の列）や空行もデータに残す
-    check("copy t from stdin;\n1\t\n", "copy t from stdin;\n1\t\n");
-    check("copy t from stdin;\n\t\n", "copy t from stdin;\n\t\n");
-    check("copy t from stdin;\n1\n\n", "copy t from stdin;\n1\n\n");
+    check("copy t from stdin;\n1\t\n", "COPY t FROM STDIN;\n1\t\n");
+    check("copy t from stdin;\n\t\n", "COPY t FROM STDIN;\n\t\n");
+    check("copy t from stdin;\n1\n\n", "COPY t FROM STDIN;\n1\n\n");
     // 括弧の中の FROM stdin は COPY のデータの印ではない
     check(
         "copy (select * from stdin) to stdout;\nselect   1;\n",
-        "copy (select * from stdin) to stdout;\nSELECT 1;\n",
+        "COPY (\n    SELECT *\n    FROM stdin\n) TO STDOUT;\nSELECT 1;\n",
     );
     // FROM STDIN でない COPY の後ろは普通の文
     check(
         "copy t to stdout;\nselect 1;\n",
-        "copy t to stdout;\nSELECT 1;\n",
+        "COPY t TO STDOUT;\nSELECT 1;\n",
     );
 }
 
@@ -1290,5 +1290,349 @@ fn truncate_statements() {
     check(
         "truncate table :tbl, t cascade;",
         "TRUNCATE TABLE :tbl, t CASCADE;\n",
+    );
+}
+
+#[test]
+fn create_sequence_options_are_one_per_line() {
+    check(
+        "create sequence if not exists s.seq as bigint increment by 2 minvalue -10 no maxvalue start with 10 cache 5 no cycle owned by t.id;\ncreate temp sequence s2;\ncreate unlogged sequence s3 start 1 owned by none",
+        "\
+CREATE SEQUENCE IF NOT EXISTS s.seq
+AS bigint
+INCREMENT BY 2
+MINVALUE -10
+NO MAXVALUE
+START WITH 10
+CACHE 5
+NO CYCLE
+OWNED BY t.id;
+CREATE TEMP SEQUENCE s2;
+CREATE UNLOGGED SEQUENCE s3
+START 1
+OWNED BY NONE
+",
+    );
+}
+
+#[test]
+fn create_type_statements() {
+    // 複合型の列は CREATE TABLE と同じく 1 行ずつ
+    check(
+        "create type pair as (a int, b text collate \"C\")",
+        "CREATE TYPE pair AS (\n    a int\n  , b text COLLATE \"C\"\n)\n",
+    );
+    check(
+        "create type mood as enum ('sad', 'ok');\ncreate type r as range (subtype = int4);\ncreate type shell;",
+        "CREATE TYPE mood AS ENUM ('sad', 'ok');\nCREATE TYPE r AS RANGE (subtype = int4);\nCREATE TYPE shell;\n",
+    );
+}
+
+#[test]
+fn create_schema_and_extension_statements() {
+    check(
+        "create schema if not exists app authorization app_owner;\ncreate schema authorization joe;\ncreate extension if not exists \"uuid-ossp\" with schema public version '1.1' cascade;\ncreate extension pgcrypto",
+        "\
+CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION app_owner;
+CREATE SCHEMA AUTHORIZATION joe;
+CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA public VERSION '1.1' CASCADE;
+CREATE EXTENSION pgcrypto
+",
+    );
+}
+
+#[test]
+fn grant_and_revoke_statements() {
+    check(
+        "grant select, insert (a, key), update on table public.t, s.u to app_user, group staff, public with grant option granted by current_user;\ngrant all privileges on all tables in schema app to reader;\ngrant execute on function f(int, text) to app",
+        "\
+GRANT SELECT, INSERT (a, key), UPDATE ON TABLE public.t, s.u TO app_user, GROUP staff, PUBLIC WITH GRANT OPTION GRANTED BY CURRENT_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA app TO reader;
+GRANT EXECUTE ON FUNCTION f(int, text) TO app
+",
+    );
+    check(
+        "revoke grant option for select on t from app cascade;\ngrant admin_role, data to joe with admin option;\nrevoke admin option for admin_role from joe;\ngrant usage on schema app to :role",
+        "\
+REVOKE GRANT OPTION FOR SELECT ON t FROM app CASCADE;
+GRANT admin_role, data TO joe WITH ADMIN OPTION;
+REVOKE ADMIN OPTION FOR admin_role FROM joe;
+GRANT USAGE ON SCHEMA app TO :role
+",
+    );
+}
+
+#[test]
+fn alter_statements() {
+    // ALTER SEQUENCE のオプションは CREATE SEQUENCE と同じく 1 行ずつ
+    check(
+        "alter sequence if exists s.seq increment by 5 restart with 100 no cycle;\nalter sequence s owned by t.id;\nalter sequence s owner to app",
+        "\
+ALTER SEQUENCE IF EXISTS s.seq
+INCREMENT BY 5
+RESTART WITH 100
+NO CYCLE;
+ALTER SEQUENCE s
+OWNED BY t.id;
+ALTER SEQUENCE s OWNER TO app
+",
+    );
+    check(
+        "alter index if exists i rename to j;\nalter index i set tablespace fast;\nalter view v rename column a to data;\nalter materialized view mv set schema app;\nalter trigger trg on t rename to trg2",
+        "\
+ALTER INDEX IF EXISTS i RENAME TO j;
+ALTER INDEX i SET TABLESPACE fast;
+ALTER VIEW v RENAME COLUMN a TO data;
+ALTER MATERIALIZED VIEW mv SET SCHEMA app;
+ALTER TRIGGER trg ON t RENAME TO trg2
+",
+    );
+    check(
+        "alter function f(int, text) owner to current_user;\nalter function g() security definer set search_path = public;\nalter type mood add value if not exists 'meh' before 'ok';\nalter type pair add attribute c int, drop attribute if exists b cascade",
+        "\
+ALTER FUNCTION f(int, text) OWNER TO CURRENT_USER;
+ALTER FUNCTION g() SECURITY DEFINER SET search_path = public;
+ALTER TYPE mood ADD VALUE IF NOT EXISTS 'meh' BEFORE 'ok';
+ALTER TYPE pair ADD ATTRIBUTE c int, DROP ATTRIBUTE IF EXISTS b CASCADE
+",
+    );
+    check(
+        "alter domain d set default 0;\nalter domain d add constraint pos check (value > 0) not valid;\nalter schema app owner to joe;\nalter extension pgcrypto update to '1.3';\nalter role joe with login password 'x' valid until 'infinity'",
+        "\
+ALTER DOMAIN d SET DEFAULT 0;
+ALTER DOMAIN d ADD CONSTRAINT pos CHECK (value > 0) NOT VALID;
+ALTER SCHEMA app OWNER TO joe;
+ALTER EXTENSION pgcrypto UPDATE TO '1.3';
+ALTER ROLE joe WITH LOGIN PASSWORD 'x' VALID UNTIL 'infinity'
+",
+    );
+    // ON の後ろの表名はキーワードと同じ綴りでも名前。DEFAULT の後ろは式として整える
+    check(
+        "alter trigger trg on data rename to x;\nalter domain d set default lower ( 'X' )||'y'",
+        "ALTER TRIGGER trg ON data RENAME TO x;\nALTER DOMAIN d SET DEFAULT lower('X') || 'y'\n",
+    );
+    // ALTER DEFAULT PRIVILEGES の後ろは GRANT / REVOKE。psql の変数は分けない
+    check(
+        "alter default privileges for role admin in schema app grant select on tables to reader;\nalter index :idx rename to :new_name",
+        "\
+ALTER DEFAULT PRIVILEGES FOR ROLE admin IN SCHEMA app GRANT SELECT ON TABLES TO reader;
+ALTER INDEX :idx RENAME TO :new_name
+",
+    );
+}
+
+#[test]
+fn psql_variables_stay_in_one_piece() {
+    // 型や名前の位置の psql の変数は、前の語とくっつけない（くっつくと置き換えた値が名前とつながる）
+    check(
+        "create type t as (h :typ, b :typ[]);\ncreate type :t2 as (a int);\ncreate type e as enum (:'a', :'b');\ncreate schema :s authorization :u;\ndrop table :tbl;\nselect * from :tbl where id = :id and n = :\"col\"",
+        "\
+CREATE TYPE t AS (
+    h :typ
+  , b :typ[]
+);
+CREATE TYPE :t2 AS (
+    a int
+);
+CREATE TYPE e AS ENUM (:'a', :'b');
+CREATE SCHEMA :s AUTHORIZATION :u;
+DROP TABLE :tbl;
+SELECT *
+FROM :tbl
+WHERE id = :id
+    AND n = :\"col\"
+",
+    );
+    // 続けて書いた変数・引用符を重ねた変数・ドットでつないだ変数も 1 つのまま
+    check(
+        "select :'it''s', x from :a:b, :\"a\"\"b\";\nupdate :s.:t set a = 1",
+        "SELECT\n    :'it''s'\n  , x\nFROM\n    :a:b\n  , :\"a\"\"b\";\nUPDATE :s.:t\nSET a = 1\n",
+    );
+    // 空白を挟んだ配列の範囲指定は詰めない（詰めると psql が `:n` を変数として置き換える）
+    check(
+        "select a[2: n], a[2 : n], a[ : n] from t",
+        "SELECT\n    a[2: n]\n  , a[2: n]\n  , a[: n]\nFROM t\n",
+    );
+    // 配列の範囲指定と型変換は psql の変数ではない
+    check(
+        "select a[1:n], a[:2], b[lo:hi], c::int from t",
+        "SELECT\n    a[1:n]\n  , a[:2]\n  , b[lo:hi]\n  , c::int\nFROM t\n",
+    );
+}
+
+#[test]
+fn create_sequence_no_takes_one_word_and_schema_elements_stay_verbatim() {
+    check(
+        "create sequence s no maxvalue cycle",
+        "CREATE SEQUENCE s\nNO MAXVALUE\nCYCLE\n",
+    );
+    // 中に要素を書いた CREATE SCHEMA は、改行の位置を残すために元のまま
+    check(
+        "create schema s\n  create table t (a int)\n  create view v as select 1;\nselect 1",
+        "create schema s\n  create table t (a int)\n  create view v as select 1;\nSELECT 1\n",
+    );
+}
+
+#[test]
+fn copy_statements() {
+    check(
+        "copy public.t (a, owner) from stdin with (format csv, header true, delimiter ';');\n1;2\n\\.\ncopy t to '/tmp/x.csv' (format csv) where a > 0;\ncopy (select a, b from t where x = 1) to stdout with csv header",
+        "\
+COPY public.t (a, owner) FROM STDIN WITH (
+    FORMAT csv
+  , HEADER true
+  , DELIMITER ';'
+);
+1;2
+\\.
+COPY t TO '/tmp/x.csv' (FORMAT csv) WHERE a > 0;
+COPY (
+    SELECT
+        a
+      , b
+    FROM t
+    WHERE x = 1
+) TO STDOUT WITH CSV HEADER
+",
+    );
+}
+
+#[test]
+fn set_reset_show_statements() {
+    check(
+        "set search_path = app, public;\nset local work_mem to '64MB';\nset session time zone 'UTC';\nset role none;\nset transaction isolation level repeatable read, read only;\nset constraints all deferred;\nreset all;\nreset search_path;\nshow work_mem",
+        "\
+SET search_path = app, public;
+SET LOCAL work_mem TO '64MB';
+SET SESSION TIME ZONE 'UTC';
+SET ROLE NONE;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
+SET CONSTRAINTS ALL DEFERRED;
+RESET ALL;
+RESET search_path;
+SHOW work_mem
+",
+    );
+}
+
+#[test]
+fn explain_statements() {
+    // 対象の文は次の行から整形する
+    check(
+        "explain analyze verbose select a from t where b = 1;\nexplain (analyze, buffers false, format json) update t set a = 1",
+        "\
+EXPLAIN ANALYZE VERBOSE
+SELECT a
+FROM t
+WHERE b = 1;
+EXPLAIN (ANALYZE, BUFFERS false, FORMAT json)
+UPDATE t
+SET a = 1
+",
+    );
+}
+
+#[test]
+fn transaction_statements() {
+    check(
+        "savepoint work;\nrelease savepoint work;\nrollback to chain;\nbegin;\nbegin transaction isolation level serializable, read write;\nstart transaction read only, not deferrable;\nsavepoint sp1;\nrelease savepoint sp1;\nrollback to sp1;\nrollback and no chain;\ncommit work;\nend;\nabort;\nprepare transaction 'tx1';\ncommit prepared 'tx1'",
+        "\
+SAVEPOINT work;
+RELEASE SAVEPOINT work;
+ROLLBACK TO chain;
+BEGIN;
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ WRITE;
+START TRANSACTION READ ONLY, NOT DEFERRABLE;
+SAVEPOINT sp1;
+RELEASE SAVEPOINT sp1;
+ROLLBACK TO sp1;
+ROLLBACK AND NO CHAIN;
+COMMIT WORK;
+END;
+ABORT;
+PREPARE TRANSACTION 'tx1';
+COMMIT PREPARED 'tx1'
+",
+    );
+}
+
+#[test]
+fn grant_and_alter_keep_names_and_spacing() {
+    check(
+        "alter function f(int) set schema public;\nalter role bob set search_path to public, s1;\nalter schema s rename to public;\nalter function g(int) set work_mem = default security definer",
+        "\
+ALTER FUNCTION f(int) SET SCHEMA public;
+ALTER ROLE bob SET search_path TO public, s1;
+ALTER SCHEMA s RENAME TO public;
+ALTER FUNCTION g(int) SET work_mem = DEFAULT SECURITY DEFINER
+",
+    );
+    check(
+        "grant select on t to admin, Option;\ngrant Admins, devs to bob with inherit true, set false granted by Carol;\nalter policy p on t to bob using (a = current_user) with check (b > 0);\nalter extension e add cast (int as text)",
+        "\
+GRANT SELECT ON t TO admin, Option;
+GRANT Admins, devs TO bob WITH INHERIT TRUE, SET FALSE GRANTED BY Carol;
+ALTER POLICY p ON t TO bob USING (a = current_user) WITH CHECK (b > 0);
+ALTER EXTENSION e ADD CAST (int AS text)
+",
+    );
+}
+
+#[test]
+fn utility_statement_edge_cases() {
+    // 括弧付きのオプションの値は、折り返しても 1 つのまま
+    check(
+        "COPY t TO STDOUT WITH (FORMAT csv, HEADER true, FORCE_QUOTE (a, b), FORCE_NOT_NULL (c, d));",
+        "\
+COPY t TO STDOUT WITH (
+    FORMAT csv
+  , HEADER true
+  , FORCE_QUOTE (a, b)
+  , FORCE_NOT_NULL (c, d)
+);
+",
+    );
+    // EXPLAIN の直後の括弧の問い合わせはオプションではない
+    check(
+        "explain (select 1) order by 1",
+        "EXPLAIN\n(\n    SELECT 1\n)\nORDER BY 1\n",
+    );
+    check(
+        "set session authorization default;\nset local session authorization 'bob';\nset local.x = 1;\nset session.x to 2;\nshow session.x;\nreset role.x;\nset role = none;\nset role to admin;\nset role admin",
+        "\
+SET SESSION AUTHORIZATION DEFAULT;
+SET LOCAL SESSION AUTHORIZATION 'bob';
+SET local.x = 1;
+SET session.x TO 2;
+SHOW session.x;
+RESET role.x;
+SET role = NONE;
+SET role TO admin;
+SET ROLE admin
+",
+    );
+}
+
+#[test]
+fn alter_table_keeps_names_spelled_like_keywords() {
+    check(
+        "alter table t rename to data;\nalter table t rename column key to data;\nalter table t rename constraint c to key;\nalter table t set schema data;\nalter table t set tablespace data;\nalter table t attach partition data for values from (1) to (10);\nalter table t detach partition key;\nalter table t inherit data, no inherit key;\nalter table t enable trigger data, disable trigger all;\nalter table t replica identity using index key;\nalter table t owner to current_user",
+        "\
+ALTER TABLE t RENAME TO data;
+ALTER TABLE t RENAME COLUMN key TO data;
+ALTER TABLE t RENAME CONSTRAINT c TO key;
+ALTER TABLE t SET SCHEMA data;
+ALTER TABLE t SET TABLESPACE data;
+ALTER TABLE t ATTACH PARTITION data FOR VALUES FROM (1) TO (10);
+ALTER TABLE t DETACH PARTITION key;
+ALTER TABLE t
+    INHERIT data
+  , NO INHERIT key;
+ALTER TABLE t
+    ENABLE TRIGGER data
+  , DISABLE TRIGGER ALL;
+ALTER TABLE t REPLICA IDENTITY USING INDEX key;
+ALTER TABLE t OWNER TO CURRENT_USER
+",
     );
 }

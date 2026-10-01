@@ -4,8 +4,9 @@
 //! - CREATE TABLE ... AS / CREATE VIEW ... AS の問い合わせは、次の行から書く
 //! - CREATE INDEX の WHERE は次の行に置く
 //! - ALTER TABLE の操作が 2 つ以上なら、1 行ずつ行頭カンマで並べる
-//! - CREATE TRIGGER は名前の後ろの句を 1 行ずつ並べる
-//! - COMMENT ON は 1 行に書く
+//! - CREATE TRIGGER は名前の後ろの句を、CREATE / ALTER SEQUENCE はオプションを 1 行ずつ並べる
+//! - CREATE TYPE の複合型の列は、CREATE TABLE の列と同じく 1 行ずつ並べる
+//! - COMMENT ON / GRANT / REVOKE は 1 行に書く
 //! - MERGE は USING / WHEN を行頭に置き、ON と各 WHEN の処理を 1 段深くする
 
 use super::{Formatter, as_node, children, is_statement};
@@ -40,31 +41,30 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// CREATE TRIGGER の句は、1 行ずつ字下げせずに並べる（CREATE FUNCTION のオプションと同じ）
-    pub(super) fn create_trigger(&mut self, stmt: &Node<'a>, base: usize) {
+    /// CREATE TRIGGER の句・シーケンスのオプションは、1 行ずつ字下げせずに並べる（CREATE FUNCTION のオプションと同じ）。
+    /// それ以外は同じ行に続け、名前の直後の引数の括弧は続けて書く（`f(int)`。`CAST (a AS b)` や `SELECT (a, b)` は離す）。
+    /// COMMENT ON / GRANT / ALTER などもこれで 1 行に書く
+    pub(super) fn clause_per_line(&mut self, stmt: &Node<'a>, base: usize) {
+        let mut after_name = false;
         for element in children(stmt) {
             match as_node(element) {
-                Some(n) if n.kind == NodeKind::TriggerClause => {
+                Some(n) if matches!(n.kind, NodeKind::TriggerClause | NodeKind::SequenceOption) => {
                     self.w.newline(base);
+                    self.node(n);
+                }
+                Some(n) if after_name && n.kind == NodeKind::ExprList => {
+                    self.w.glue();
                     self.node(n);
                 }
                 _ => self.element(element),
             }
-        }
-    }
-
-    /// COMMENT ON は 1 行に書く。名前の直後の引数の括弧は続けて書く（`f(int)`。`CAST (a AS b)` は離す）
-    pub(super) fn comment_stmt(&mut self, stmt: &Node<'a>) {
-        let mut after_name = false;
-        for element in children(stmt) {
-            if after_name && as_node(element).is_some_and(|n| n.kind == NodeKind::ExprList) {
-                self.w.glue();
-            }
             after_name = matches!(
                 element,
-                Element::Token(t) if matches!(t.kind, TokenKind::Ident | TokenKind::QuotedIdent { .. })
+                Element::Token(t) if matches!(
+                    t.kind,
+                    TokenKind::Ident | TokenKind::QuotedIdent { .. } | TokenKind::PsqlVariable
+                )
             );
-            self.element(element);
         }
     }
 

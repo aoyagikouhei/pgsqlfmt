@@ -208,15 +208,20 @@ impl<'a> Formatter<'a> {
             NodeKind::InsertStmt => self.insert_stmt(stmt, base),
             NodeKind::UpdateStmt | NodeKind::DeleteStmt => self.update_or_delete(stmt, base),
             NodeKind::CreateFunctionStmt => self.create_function(stmt, base),
-            NodeKind::CreateTableStmt | NodeKind::CreateViewStmt | NodeKind::CreateIndexStmt => {
-                self.create_object(stmt, base)
-            }
+            NodeKind::CreateTableStmt
+            | NodeKind::CreateViewStmt
+            | NodeKind::CreateIndexStmt
+            | NodeKind::CreateTypeStmt
+            | NodeKind::ExplainStmt => self.create_object(stmt, base),
             NodeKind::AlterTableStmt => self.list_clause(stmt, base),
             // `DROP FUNCTION f(int, text)`
             NodeKind::DropStmt => self.inline_glued(stmt, |e| is_node(e, NodeKind::ExprList)),
             NodeKind::MergeStmt => self.merge_stmt(stmt, base),
-            NodeKind::CreateTriggerStmt => self.create_trigger(stmt, base),
-            NodeKind::CommentStmt => self.comment_stmt(stmt),
+            NodeKind::CreateTriggerStmt
+            | NodeKind::CreateSequenceStmt
+            | NodeKind::AlterStmt
+            | NodeKind::CommentStmt
+            | NodeKind::GrantStmt => self.clause_per_line(stmt, base),
             NodeKind::DoStmt => self.do_stmt(stmt, base),
             _ => self.node(stmt),
         }
@@ -469,6 +474,16 @@ fn is_statement(kind: NodeKind) -> bool {
             | NodeKind::CreateTriggerStmt
             | NodeKind::CommentStmt
             | NodeKind::TruncateStmt
+            | NodeKind::GrantStmt
+            | NodeKind::AlterStmt
+            | NodeKind::CopyStmt
+            | NodeKind::SetStmt
+            | NodeKind::ExplainStmt
+            | NodeKind::TransactionStmt
+            | NodeKind::CreateSequenceStmt
+            | NodeKind::CreateTypeStmt
+            | NodeKind::CreateSchemaStmt
+            | NodeKind::CreateExtensionStmt
             | NodeKind::CreateFunctionStmt
             | NodeKind::DoStmt
             | NodeKind::CallStmt
