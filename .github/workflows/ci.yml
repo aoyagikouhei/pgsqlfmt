@@ -1,5 +1,6 @@
 # push と PR ごとに、手元の `make check` と同じ検査（PostgreSQL での実機検証を含む）を Docker Compose で流す。
 # あわせて配布用イメージ（pre-commit のフックが使う）をビルドし、実際に整形できるかを確かめる。
+# 開発用イメージの層は GitHub Actions のキャッシュ（公開リポジトリは 10GB まで無料）に保存する。
 name: CI
 
 on:
@@ -23,9 +24,25 @@ jobs:
       - uses: actions/checkout@v7
       # 開発コンテナのユーザーをランナーのユーザーと合わせる（作業ディレクトリをマウントして書き込むため）
       - name: Set up .env
-        run: printf 'LOCAL_UID=%s\nLOCAL_GID=%s\n' "$(id -u)" "$(id -g)" > .env
+        id: user
+        run: |
+          printf 'LOCAL_UID=%s\nLOCAL_GID=%s\n' "$(id -u)" "$(id -g)" > .env
+          printf 'uid=%s\ngid=%s\n' "$(id -u)" "$(id -g)" >> "$GITHUB_OUTPUT"
+      # 開発用イメージ（psql と cargo-insta のビルドを含む）は、層を GitHub Actions のキャッシュに保存して使い回す。
+      # compose と同じ名前で読み込んでおけば、docker compose run はビルドせずにこのイメージを使う
+      - uses: docker/setup-buildx-action@v4
       - name: Build dev image
-        run: docker compose build dev
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/dev/Dockerfile
+          build-args: |
+            USER_UID=${{ steps.user.outputs.uid }}
+            USER_GID=${{ steps.user.outputs.gid }}
+          tags: sql-formatter-rs-dev:latest
+          load: true
+          cache-from: type=gha,scope=dev-image
+          cache-to: type=gha,scope=dev-image,mode=max
       - name: fmt / clippy / test
         run: make check RUN_FLAGS=-T
 
