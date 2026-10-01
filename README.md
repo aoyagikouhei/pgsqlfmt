@@ -96,7 +96,7 @@ make down      # 停止
 - `tests/formatter_properties.rs` は、すべてのフィクスチャとその変形について、整形でトークンやコメントが
   欠けないことと、2 回整形しても結果が変わらないことを確かめます。
 - `tests/postgres_equivalence.rs` は、すべてのフィクスチャを整形の前と後で PostgreSQL（`db` コンテナ）に流し、
-  結果が同じになることを確かめます（行幅 80 と 20）。SELECT / DML は `EXPLAIN (VERBOSE, COSTS OFF, GENERIC_PLAN)` の
+  結果が同じになることを確かめます（既定の設定、行幅 20、字下げ 2・小文字・行末カンマの 3 通り）。SELECT / DML は `EXPLAIN (VERBOSE, COSTS OFF, GENERIC_PLAN)` の
   実行計画と実行結果を、CREATE FUNCTION は本体以外のカタログ上の定義を、DO / 関数の呼び出しは NOTICE を含む出力を比べます。
   最後に public スキーマのカタログ（列・型・既定値・制約・インデックス・ビューの定義）も比べるので、DDL の違いも見つけられます。
   スキーマは `tests/postgres/schema.sql`、エラーなく実行できるべき検証用の SQL は `tests/fixtures/postgres/` にあります。

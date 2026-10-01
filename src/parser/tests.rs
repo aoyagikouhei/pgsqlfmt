@@ -1006,3 +1006,21 @@ fn merge_statements() {
         "(MergeStmt MERGE INTO (TableRef t) USING (DerivedTable (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1) (Alias AS id))))) )) (Alias s)) (JoinCondition ON (Literal true)) (MergeWhenClause WHEN NOT MATCHED THEN INSERT DEFAULT VALUES))"
     );
 }
+
+// ---- 大きさ ----
+
+/// 無限ループの検出は「進まないまま先読みした回数」で数えるので、入力の大きさには上限がない
+#[test]
+fn large_inputs_do_not_trip_the_progress_guard() {
+    // 先読みは 1 トークンあたり数十回あるので、この大きさで累計は 1,000 万回を超える
+    let stmt = "select a, b, c from t1 join t2 on t1.id = t2.id where x = 1 and y in (1, 2, 3) order by a;\n";
+    let src = stmt.repeat(40_000);
+    let root = parse(&src);
+    assert_eq!(root.text(), src);
+    let statements = root
+        .children
+        .iter()
+        .filter(|c| matches!(c, Element::Node(n) if n.kind == NodeKind::SelectStmt))
+        .count();
+    assert_eq!(statements, 40_000);
+}

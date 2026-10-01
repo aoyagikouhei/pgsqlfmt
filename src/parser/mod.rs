@@ -41,7 +41,7 @@ struct Parser<'a> {
     pos: usize,
     /// 開いているノードの種類と、そこまでに取り込んだ子
     stack: Vec<(NodeKind, Vec<Element<'a>>)>,
-    /// 無限ループの検出用
+    /// 無限ループの検出用。最後にトークンを取り込んでからの先読みの回数
     steps: Cell<u32>,
     /// 句の終わりとして扱う追加のキーワード（`FOR r IN SELECT ... LOOP` の `loop` など）
     stops: Vec<&'static str>,
@@ -84,6 +84,7 @@ impl<'a> Parser<'a> {
 
     /// 空白・コメントを飛ばした n 番目のトークン
     fn nth(&self, n: usize) -> Option<Token<'a>> {
+        // 1 トークンあたりの先読みは数十回なので、進まないまま 1,000 万回に達したら無限ループ
         let steps = self.steps.get() + 1;
         assert!(steps < 10_000_000, "パーサーが先に進んでいない");
         self.steps.set(steps);
@@ -137,7 +138,13 @@ impl<'a> Parser<'a> {
 
     fn push_token(&mut self) {
         let token = self.tokens[self.pos];
+        self.push_token_as(token);
+    }
+
+    /// 現在位置のトークンを `token` として現在のノードへ取り込み、次へ進む
+    fn push_token_as(&mut self, token: Token<'a>) {
         self.pos += 1;
+        self.steps.set(0);
         self.stack.last_mut().unwrap().1.push(Element::Token(token));
     }
 
@@ -170,8 +177,7 @@ impl<'a> Parser<'a> {
         if token.kind == TokenKind::Ident {
             token.kind = TokenKind::Keyword;
         }
-        self.pos += 1;
-        self.stack.last_mut().unwrap().1.push(Element::Token(token));
+        self.push_token_as(token);
     }
 
     /// キーワード `kw` があればキーワードとして取り込む

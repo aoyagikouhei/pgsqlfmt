@@ -170,7 +170,11 @@ fn find_sql_files(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
             find_sql_files(&path, files)?;
-        } else if path.extension().is_some_and(|e| e == "sql") && path.is_file() {
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("sql"))
+            && path.is_file()
+        {
             files.push(path);
         }
     }

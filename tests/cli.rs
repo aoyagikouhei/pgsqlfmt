@@ -135,16 +135,19 @@ fn directories_are_searched_for_sql_files() {
     dir.file("src/sub/c.sql", FORMATTED);
     dir.file("src/.hidden/d.sql", UNFORMATTED);
     dir.file("src/note.txt", UNFORMATTED);
+    // 拡張子は大文字小文字を区別しない
+    dir.file("src/e.SQL", UNFORMATTED);
     let output = run(&["--check", "src"], "", &dir.0);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output),
-        "整形されていません: src/a.sql\n整形されていません: src/sub/b.sql\n2 個のファイルが整形されていません\n"
+        "整形されていません: src/a.sql\n整形されていません: src/e.SQL\n整形されていません: src/sub/b.sql\n3 個のファイルが整形されていません\n"
     );
 
     let output = run(&["--write", "src"], "", &dir.0);
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(read(&dir.0.join("src/sub/b.sql")), FORMATTED);
+    assert_eq!(read(&dir.0.join("src/e.SQL")), FORMATTED);
     assert_eq!(read(&dir.0.join("src/.hidden/d.sql")), UNFORMATTED);
     assert_eq!(read(&dir.0.join("src/note.txt")), UNFORMATTED);
 }
