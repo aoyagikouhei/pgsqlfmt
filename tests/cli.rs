@@ -170,6 +170,11 @@ fn usage_errors() {
         &["--unknown"],
         &["--max-width"],
         &["--max-width", "x"],
+        &["--indent", "1"],
+        &["--indent", "9"],
+        &["--keyword-case", "title"],
+        &["--comma", "middle"],
+        &["--comma"],
     ] {
         let output = run(args, "", &dir.0);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
@@ -198,5 +203,33 @@ fn files_in_directories_are_processed_in_name_order() {
     assert_eq!(
         stderr(&output),
         format!("{expected}8 個のファイルが整形されていません\n")
+    );
+}
+
+#[test]
+fn style_options() {
+    let dir = TempDir::new();
+    let output = run(
+        &[
+            "--indent",
+            "2",
+            "--keyword-case",
+            "lower",
+            "--comma",
+            "trailing",
+        ],
+        UNFORMATTED,
+        &dir.0,
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(stdout(&output), "select\n  a,\n  b\nfrom t\nwhere x = 1\n");
+    let output = run(
+        &["--keyword-case", "preserve", "--comma", "leading"],
+        UNFORMATTED,
+        &dir.0,
+    );
+    assert_eq!(
+        stdout(&output),
+        "select\n    a\n  , b\nfrom t\nwhere x = 1\n"
     );
 }

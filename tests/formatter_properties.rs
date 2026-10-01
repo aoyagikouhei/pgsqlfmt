@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use sql_formatter::lexer::{Token, TokenKind, tokenize};
-use sql_formatter::{FormatOptions, format, format_with_options};
+use sql_formatter::{CommaStyle, FormatOptions, KeywordCase, format, format_with_options};
 
 fn fixtures() -> Vec<String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -105,16 +105,37 @@ fn tokens_and_comments_are_preserved() {
     });
 }
 
-/// 狭い行幅でも、トークン・コメントが残り、2 回整形しても変わらない
+/// 狭い行幅や既定以外の設定でも、トークン・コメントが残り、2 回整形しても変わらない
 #[test]
-fn narrow_width_formatting_is_lossless_and_idempotent() {
-    let options = FormatOptions { max_width: 20 };
+fn other_options_are_lossless_and_idempotent() {
+    let option_sets = [
+        FormatOptions {
+            max_width: 20,
+            ..FormatOptions::default()
+        },
+        FormatOptions {
+            max_width: 30,
+            indent_width: 2,
+            keyword_case: KeywordCase::Lower,
+            comma_style: CommaStyle::Trailing,
+        },
+        FormatOptions {
+            max_width: 20,
+            indent_width: 8,
+            keyword_case: KeywordCase::Preserve,
+            comma_style: CommaStyle::Leading,
+        },
+    ];
     for_each_input(|input| {
-        let once = format_with_options(input, &options);
-        let context = format!("\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}");
-        assert_eq!(significant(&once), significant(input), "{context}");
-        assert_eq!(comments(&once), comments(input), "{context}");
-        assert_eq!(format_with_options(&once, &options), once, "{context}");
+        for options in &option_sets {
+            let once = format_with_options(input, options);
+            let context = format!(
+                "\n--- 設定 ---\n{options:?}\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}"
+            );
+            assert_eq!(significant(&once), significant(input), "{context}");
+            assert_eq!(comments(&once), comments(input), "{context}");
+            assert_eq!(format_with_options(&once, options), once, "{context}");
+        }
     });
 }
 

@@ -19,6 +19,17 @@ docker run --rm -i sql-formatter --max-width 100 < query.sql  # 行幅を変え�
 - `--write` は変わったファイルだけを書き換え、`--check` はファイルを書き換えません。
 - 終了コード: 0 = 成功、1 = `--check` で整形されていないファイルがあった、2 = 引数や読み書きのエラー。
 
+整形の設定（既定値は下のスタイル）:
+
+| オプション | 値 | 既定 |
+| --- | --- | --- |
+| `-w`, `--max-width N` | 行幅 | 80 |
+| `--indent N` | 字下げの幅（2〜8） | 4 |
+| `--keyword-case` | `upper` / `lower` / `preserve`（入力のまま） | `upper` |
+| `--comma` | `leading`（行頭）/ `trailing`（行末） | `leading` |
+
+pre-commit では `args: [--indent, "2", --comma, trailing]` のように渡せます。
+
 開発中は `docker compose run --rm -T dev cargo run -q -- [オプション] [ファイル]` でも動かせます。
 
 ### pre-commit

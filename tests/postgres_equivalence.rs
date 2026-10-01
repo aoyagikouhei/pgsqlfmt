@@ -19,7 +19,7 @@ use std::process::{Command, Stdio};
 use sql_formatter::lexer::TokenKind;
 use sql_formatter::parser::parse;
 use sql_formatter::syntax::{Element, Node, NodeKind};
-use sql_formatter::{FormatOptions, format_with_options};
+use sql_formatter::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
 
 fn postgres_available() -> bool {
     if std::env::var_os("PGHOST").is_none() {
@@ -190,8 +190,8 @@ fn run_psql(script: &str) -> String {
 }
 
 /// 整形の前後で、psql の出力が同じか
-fn assert_equivalent(name: &str, src: &str, max_width: usize) -> String {
-    let formatted = format_with_options(src, &FormatOptions { max_width });
+fn assert_equivalent(name: &str, src: &str, options: &FormatOptions) -> String {
+    let formatted = format_with_options(src, options);
     let original_root = parse(src);
     let formatted_root = parse(&formatted);
     let statements = |root: &Node| {
@@ -210,7 +210,7 @@ fn assert_equivalent(name: &str, src: &str, max_width: usize) -> String {
     let after = run_psql(&script(&formatted));
     if after != original {
         panic!(
-            "{name}（行幅 {max_width}）: 整形の前後で PostgreSQL の結果が違う\n{}\n--- 整形後 ---\n{formatted}",
+            "{name}（{options:?}）: 整形の前後で PostgreSQL の結果が違う\n{}\n--- 整形後 ---\n{formatted}",
             first_difference(&original, &after)
         );
     }
@@ -234,6 +234,23 @@ fn first_difference(expected: &str, actual: &str) -> String {
     )
 }
 
+/// 既定の設定、狭い行幅、既定以外の設定の組み合わせ
+fn option_sets() -> [FormatOptions; 3] {
+    [
+        FormatOptions::default(),
+        FormatOptions {
+            max_width: 20,
+            ..FormatOptions::default()
+        },
+        FormatOptions {
+            max_width: 30,
+            indent_width: 2,
+            keyword_case: KeywordCase::Lower,
+            comma_style: CommaStyle::Trailing,
+        },
+    ]
+}
+
 #[test]
 fn formatted_fixtures_behave_the_same_in_postgres() {
     if !postgres_available() {
@@ -244,8 +261,8 @@ fn formatted_fixtures_behave_the_same_in_postgres() {
     std::thread::scope(|scope| {
         for (name, src) in &fixtures {
             scope.spawn(move || {
-                for max_width in [80, 20] {
-                    assert_equivalent(name, src, max_width);
+                for options in option_sets() {
+                    assert_equivalent(name, src, &options);
                 }
             });
         }
@@ -262,7 +279,7 @@ fn postgres_fixtures_run_without_errors() {
     assert!(fixtures.len() >= 2);
     let mut plans = 0;
     for (name, src) in fixtures {
-        let output = assert_equivalent(&name, &src, 80);
+        let output = assert_equivalent(&name, &src, &FormatOptions::default());
         let unexpected: Vec<_> = output
             .lines()
             .filter(|l| l.starts_with("ERROR:") && !l.contains("negative: -1"))

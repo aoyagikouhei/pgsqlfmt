@@ -1,6 +1,6 @@
 //! 文と句のレイアウト。句を行頭に置き、並びや条件を字下げして並べる。
 
-use super::{Formatter, INDENT, as_node, as_token, children, is_node, logical_op};
+use super::{Formatter, as_node, as_token, children, is_node, logical_op};
 use crate::lexer::{Token, TokenKind};
 use crate::syntax::{Element, Node, NodeKind};
 
@@ -85,11 +85,9 @@ impl<'a> Formatter<'a> {
         let elements = children(node);
         for (i, element) in elements.iter().enumerate() {
             if let Some(comma) = as_token(element).filter(|t| t.kind == TokenKind::Comma) {
-                self.w.flush_trailing_comments(comma);
-                if let Some(first) = first_token(&elements[i + 1..]) {
-                    self.w.move_leading_comments(&first, comma);
-                }
-                self.w.newline(base);
+                // 2 つ目以降の CTE は、CTE の名前と同じ位置から（行頭カンマは CTE の名前の左に詰めない）
+                self.list_separator(comma, first_token(&elements[i + 1..]), base, 0);
+                continue;
             }
             self.element(element);
         }
@@ -134,16 +132,12 @@ impl<'a> Formatter<'a> {
             }
             return;
         }
+        let item_indent = base + self.indent_width;
         for (i, item) in items.iter().enumerate() {
-            if i > 0 {
-                self.w.flush_trailing_comments(commas[i - 1]);
-            }
-            self.w.newline(base + INDENT);
-            if i > 0 {
-                if let Some(first) = first_token(item) {
-                    self.w.move_leading_comments(&first, commas[i - 1]);
-                }
-                self.w.token_outdented(commas[i - 1], 2);
+            if i == 0 {
+                self.w.newline(item_indent);
+            } else {
+                self.list_separator(commas[i - 1], first_token(item), item_indent, 2);
             }
             for element in item {
                 self.element(element);
@@ -157,7 +151,7 @@ impl<'a> Formatter<'a> {
         for element in children(node) {
             match element {
                 Element::Node(n) => {
-                    self.w.set_indent(base + INDENT);
+                    self.w.set_indent(base + self.indent_width);
                     self.condition(n, base);
                 }
                 Element::Token(t) => self.w.token(t),
@@ -176,7 +170,7 @@ impl<'a> Formatter<'a> {
         flatten_chain(node, &op, &mut operands, &mut operators);
         for (i, operand) in operands.into_iter().enumerate() {
             if i > 0 {
-                self.w.newline(base + INDENT);
+                self.w.newline(base + self.indent_width);
                 self.w.token(operators[i - 1]);
             }
             self.node(operand);
@@ -223,12 +217,12 @@ impl<'a> Formatter<'a> {
                     self.w.token(t);
                 }
                 Element::Node(n) if after_do && n.kind == NodeKind::SetClause => {
-                    self.w.newline(base + INDENT);
-                    self.list_clause(n, base + INDENT);
+                    self.w.newline(base + self.indent_width);
+                    self.list_clause(n, base + self.indent_width);
                 }
                 Element::Node(n) if after_do && n.kind == NodeKind::WhereClause => {
-                    self.w.newline(base + INDENT);
-                    self.condition_clause(n, base + INDENT);
+                    self.w.newline(base + self.indent_width);
+                    self.condition_clause(n, base + self.indent_width);
                 }
                 _ => self.element(element),
             }

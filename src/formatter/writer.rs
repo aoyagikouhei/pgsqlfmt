@@ -8,10 +8,9 @@
 
 use std::collections::HashMap;
 
+use super::KeywordCase;
 use crate::lexer::{Token, TokenKind};
 use crate::syntax::{Element, Node, NodeKind};
-
-pub(super) const INDENT: usize = 4;
 
 #[derive(Clone)]
 struct Comment<'a> {
@@ -57,6 +56,7 @@ pub(super) struct Writer<'a> {
     must_break: bool,
     /// 測定中なら、出力せずに幅だけを数える
     measure: Option<Measure>,
+    keyword_case: KeywordCase,
 }
 
 /// 1 行で書いたときに行幅に収まるかの測定
@@ -93,7 +93,7 @@ pub(super) fn token_range<'a>(node: &Node<'a>) -> Option<(Token<'a>, Token<'a>)>
 }
 
 impl<'a> Writer<'a> {
-    pub(super) fn new(src: &'a str, root: &Node<'a>) -> Self {
+    pub(super) fn new(src: &'a str, root: &Node<'a>, keyword_case: KeywordCase) -> Self {
         let mut w = Writer {
             src,
             out: String::new(),
@@ -105,6 +105,7 @@ impl<'a> Writer<'a> {
             glue_next: false,
             must_break: false,
             measure: None,
+            keyword_case,
         };
         w.attach_comments(root);
         w
@@ -331,10 +332,19 @@ impl<'a> Writer<'a> {
 
     pub(super) fn token(&mut self, token: &Token<'a>) {
         let text = match token.kind {
-            TokenKind::Keyword => token.text.to_ascii_uppercase(),
+            TokenKind::Keyword => self.keyword_text(token.text),
             _ => token.text.to_string(),
         };
         self.token_as(token, &text, 0);
+    }
+
+    /// キーワードを設定どおりの大文字・小文字にする
+    pub(super) fn keyword_text(&self, text: &str) -> String {
+        match self.keyword_case {
+            KeywordCase::Upper => text.to_ascii_uppercase(),
+            KeywordCase::Lower => text.to_ascii_lowercase(),
+            KeywordCase::Preserve => text.to_string(),
+        }
     }
 
     /// 字下げより `outdent` だけ左から書き始める（行頭カンマ用）

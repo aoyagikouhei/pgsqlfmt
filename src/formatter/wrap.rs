@@ -10,7 +10,7 @@
 //! - RAISE / EXECUTE: `USING` / `INTO` の前で改行する
 
 use super::stmt::split_binary;
-use super::{Formatter, INDENT, as_node, as_token, children};
+use super::{Formatter, as_node, as_token, children};
 use crate::lexer::{Token, TokenKind};
 use crate::syntax::{Element, Node, NodeKind};
 
@@ -71,7 +71,7 @@ impl<'a> Formatter<'a> {
             if first || pending_comma.is_some() {
                 match pending_comma.take() {
                     Some(comma) => self.leading_comma(comma, Some(element), base),
-                    None => self.w.newline(base + INDENT),
+                    None => self.w.newline(base + self.indent_width),
                 }
                 first = false;
             }
@@ -86,14 +86,10 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 改行して、項目の前の行頭カンマを書く
+    /// 項目の間のカンマを書いて、次の項目の行に移る
     fn leading_comma(&mut self, comma: &Token<'a>, item: Option<&Element<'a>>, base: usize) {
-        self.w.flush_trailing_comments(comma);
-        self.w.newline(base + INDENT);
-        if let Some(first) = item.and_then(first_token) {
-            self.w.move_leading_comments(&first, comma);
-        }
-        self.w.token_outdented(comma, 2);
+        let next = item.and_then(first_token);
+        self.list_separator(comma, next, base + self.indent_width, 2);
     }
 
     /// `a op b op c`。同じ演算子の連なりを、演算子の前で改行して並べる。
@@ -109,10 +105,10 @@ impl<'a> Formatter<'a> {
         flatten_same_op(node, &op, &mut operands, &mut operators);
         let base = self.w.indent();
         // 被演算子の中の折り返しは演算子の行より深くして、どの演算子の被演算子かを見分けやすくする
-        self.w.set_indent(base + INDENT);
+        self.w.set_indent(base + self.indent_width);
         for (i, operand) in operands.into_iter().enumerate() {
             if i > 0 {
-                self.w.newline(base + INDENT);
+                self.w.newline(base + self.indent_width);
                 self.w.token(operators[i - 1]);
             }
             self.node(operand);
@@ -134,7 +130,7 @@ impl<'a> Formatter<'a> {
                     self.w.token(t);
                 }
                 _ => {
-                    self.w.newline(base + INDENT);
+                    self.w.newline(base + self.indent_width);
                     self.element(element);
                 }
             }
@@ -151,7 +147,7 @@ impl<'a> Formatter<'a> {
         for element in children(node) {
             match as_node(element) {
                 Some(n) if matches!(n.kind, NodeKind::PlUsing | NodeKind::IntoClause) => {
-                    self.w.newline(base + INDENT);
+                    self.w.newline(base + self.indent_width);
                     self.node(n);
                 }
                 _ => self.element(element),

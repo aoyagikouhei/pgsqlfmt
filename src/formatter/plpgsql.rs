@@ -6,7 +6,7 @@
 //! - CASE 文の WHEN と EXCEPTION の WHEN はさらに 1 段深く、その中の文はもう 1 段深く
 //! - `FOR r IN` / `RETURN QUERY` / `OPEN c FOR` の後ろの問い合わせは、次の行から 1 段深く
 
-use super::{Formatter, INDENT, as_node, children, is_statement};
+use super::{Formatter, as_node, children, is_statement};
 use crate::lexer::TokenKind;
 use crate::syntax::{Element, Node, NodeKind};
 
@@ -142,8 +142,8 @@ impl<'a> Formatter<'a> {
         for element in children(node) {
             match element {
                 Element::Node(n) => {
-                    self.w.newline(base + INDENT);
-                    self.statement(n, base + INDENT);
+                    self.w.newline(base + self.indent_width);
+                    self.statement(n, base + self.indent_width);
                 }
                 _ if is_keyword(element, &["end"]) => {
                     self.w.newline(base);
@@ -182,7 +182,7 @@ impl<'a> Formatter<'a> {
     /// PL/pgSQL の文やブロックの子を書く。`base` はこの文の行の深さ。
     fn pl_children(&mut self, node: &Node<'a>, base: usize) {
         let part_base = match node.kind {
-            NodeKind::PlCase | NodeKind::PlExceptionSection => base + INDENT,
+            NodeKind::PlCase | NodeKind::PlExceptionSection => base + self.indent_width,
             _ => base,
         };
         let mut statements = 0;
@@ -190,10 +190,10 @@ impl<'a> Formatter<'a> {
         for element in children(node) {
             match element {
                 Element::Node(n) if is_pl_statement(n.kind) => {
-                    self.w.newline(base + INDENT);
+                    self.w.newline(base + self.indent_width);
                     self.blank_line_if_separated(n, statements == 0);
                     statements += 1;
-                    self.pl_statement(n, base + INDENT);
+                    self.pl_statement(n, base + self.indent_width);
                 }
                 Element::Node(n) if is_pl_part(n.kind) => {
                     self.w.newline(part_base);
@@ -215,8 +215,8 @@ impl<'a> Formatter<'a> {
                 }
                 // `FOR r IN` / `RETURN QUERY` / `OPEN c FOR` / `CURSOR FOR` の後ろの問い合わせ
                 Element::Node(n) if is_statement(n.kind) => {
-                    self.w.newline(base + INDENT);
-                    self.statement(n, base + INDENT);
+                    self.w.newline(base + self.indent_width);
+                    self.statement(n, base + self.indent_width);
                     after_query = true;
                 }
                 _ if is_keyword(element, BLOCK_KEYWORDS) => {

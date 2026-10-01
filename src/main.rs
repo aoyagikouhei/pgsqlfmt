@@ -2,7 +2,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use sql_formatter::{FormatOptions, format_with_options};
+use sql_formatter::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
 
 const USAGE: &str = "\
 使い方: sql-formatter [オプション] [ファイルまたはディレクトリ ...]
@@ -15,6 +15,11 @@ SQL を整形する。ファイルを指定しなければ標準入力を整形�
       --write        ファイルを整形結果で上書きする
       --check        整形されていないファイルがあれば一覧を出して終了コード 1 で終わる（書き換えない）
   -w, --max-width N  行幅（既定: 80）
+      --indent N     字下げの幅。2 から 8（既定: 4）
+      --keyword-case upper|lower|preserve
+                     キーワードを大文字・小文字・入力のままにする（既定: upper）
+      --comma leading|trailing
+                     項目を 1 行ずつ並べるときのカンマを行頭・行末に置く（既定: leading）
   -h, --help         この説明を表示する
 
 終了コード: 0 = 成功、1 = --check で整形されていないファイルがあった、2 = 引数や読み書きのエラー
@@ -74,6 +79,41 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
                 parsed.options.max_width = value
                     .parse()
                     .map_err(|_| format!("{arg} の値が数値ではありません: {value}"))?;
+            }
+            "--indent" => {
+                let value = args.next().ok_or(format!("{arg} に値がありません"))?;
+                parsed.options.indent_width = value
+                    .parse()
+                    .ok()
+                    .filter(|n| (2..=8).contains(n))
+                    .ok_or(format!(
+                        "{arg} の値は 2 から 8 の数値にしてください: {value}"
+                    ))?;
+            }
+            "--keyword-case" => {
+                let value = args.next().ok_or(format!("{arg} に値がありません"))?;
+                parsed.options.keyword_case = match value.as_str() {
+                    "upper" => KeywordCase::Upper,
+                    "lower" => KeywordCase::Lower,
+                    "preserve" => KeywordCase::Preserve,
+                    _ => {
+                        return Err(format!(
+                            "{arg} の値は upper / lower / preserve のどれかにしてください: {value}"
+                        ));
+                    }
+                };
+            }
+            "--comma" => {
+                let value = args.next().ok_or(format!("{arg} に値がありません"))?;
+                parsed.options.comma_style = match value.as_str() {
+                    "leading" => CommaStyle::Leading,
+                    "trailing" => CommaStyle::Trailing,
+                    _ => {
+                        return Err(format!(
+                            "{arg} の値は leading / trailing のどちらかにしてください: {value}"
+                        ));
+                    }
+                };
             }
             "--write" | "--check" => {
                 let mode = if arg == "--write" {

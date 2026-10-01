@@ -6,7 +6,7 @@
 //! - ALTER TABLE の操作が 2 つ以上なら、1 行ずつ行頭カンマで並べる
 //! - MERGE は USING / WHEN を行頭に置き、ON と各 WHEN の処理を 1 段深くする
 
-use super::{Formatter, INDENT, as_node, children, is_statement};
+use super::{Formatter, as_node, children, is_statement};
 use crate::lexer::TokenKind;
 use crate::syntax::{Element, Node, NodeKind};
 
@@ -47,8 +47,8 @@ impl<'a> Formatter<'a> {
                         self.w.newline(base);
                     }
                     NodeKind::JoinCondition => {
-                        self.w.newline(base + INDENT);
-                        self.condition_clause(n, base + INDENT);
+                        self.w.newline(base + self.indent_width);
+                        self.condition_clause(n, base + self.indent_width);
                     }
                     NodeKind::MergeWhenClause => {
                         self.w.newline(base);
@@ -73,7 +73,7 @@ impl<'a> Formatter<'a> {
 
     /// `WHEN ... THEN` の後ろの処理を 1 段深い次の行に書く。INSERT の VALUES はさらに次の行。
     fn merge_when_clause(&mut self, node: &Node<'a>, base: usize) {
-        let action = base + INDENT;
+        let action = base + self.indent_width;
         let mut after_then = false;
         let mut action_started = false;
         for element in children(node) {

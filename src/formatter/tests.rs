@@ -1,4 +1,4 @@
-use super::{FormatOptions, format, format_with_options};
+use super::{CommaStyle, FormatOptions, KeywordCase, format, format_with_options};
 
 /// 整形結果が期待どおりで、もう一度整形しても変わらないこと
 #[track_caller]
@@ -11,7 +11,22 @@ fn check(input: &str, expected: &str) {
 /// 行幅を指定した `check`
 #[track_caller]
 fn check_width(max_width: usize, input: &str, expected: &str) {
-    let options = FormatOptions { max_width };
+    let options = FormatOptions {
+        max_width,
+        ..FormatOptions::default()
+    };
+    let formatted = format_with_options(input, &options);
+    assert_eq!(formatted, expected, "\n--- 実際 ---\n{formatted}");
+    assert_eq!(
+        format_with_options(&formatted, &options),
+        formatted,
+        "2 回目の整形で変わった"
+    );
+}
+
+/// 設定を指定した `check`
+#[track_caller]
+fn check_with(options: FormatOptions, input: &str, expected: &str) {
     let formatted = format_with_options(input, &options);
     assert_eq!(formatted, expected, "\n--- 実際 ---\n{formatted}");
     assert_eq!(
@@ -211,6 +226,26 @@ SELECT CASE
     END
     ELSE 3
 END AS v
+",
+    );
+}
+
+#[test]
+fn nested_with_clauses() {
+    // 2 つ目以降の CTE のカンマは、深い位置でも CTE の名前と同じ列に置く
+    check(
+        "select * from (with a as (select 1), b as (select 2) select 1) q",
+        "\
+SELECT *
+FROM (
+    WITH a AS (
+        SELECT 1
+    )
+    , b AS (
+        SELECT 2
+    )
+    SELECT 1
+) q
 ",
     );
 }
@@ -993,5 +1028,114 @@ WHEN NOT MATCHED THEN
 WHEN NOT MATCHED BY SOURCE THEN
     DELETE
 ",
+    );
+}
+
+// ---- 設定 ----
+
+const SAMPLE: &str = "select a, b from t join u on t.id = u.id where x = 1 and y = 2";
+
+#[test]
+fn indent_width() {
+    let options = FormatOptions {
+        indent_width: 2,
+        ..FormatOptions::default()
+    };
+    check_with(
+        options.clone(),
+        SAMPLE,
+        "\
+SELECT
+  a
+, b
+FROM t
+  JOIN u
+    ON t.id = u.id
+WHERE x = 1
+  AND y = 2
+",
+    );
+    check_with(
+        options,
+        "do $$ begin if a then return; end if; end $$",
+        "DO $$\nBEGIN\n  IF a THEN\n    RETURN;\n  END IF;\nEND\n$$\n",
+    );
+    check_with(
+        FormatOptions {
+            indent_width: 8,
+            ..FormatOptions::default()
+        },
+        "select a, b",
+        "SELECT\n        a\n      , b\n",
+    );
+}
+
+#[test]
+fn keyword_case() {
+    let lower = FormatOptions {
+        keyword_case: KeywordCase::Lower,
+        ..FormatOptions::default()
+    };
+    check_with(
+        lower,
+        "SELECT Count(*) FROM T WHERE X IS NOT NULL FOR UPDATE SKIP LOCKED",
+        "select Count(*)\nfrom T\nwhere X is not null\nfor update skip locked\n",
+    );
+    let preserve = FormatOptions {
+        keyword_case: KeywordCase::Preserve,
+        ..FormatOptions::default()
+    };
+    check_with(
+        preserve,
+        "Select a From t wHeRe x Is Null",
+        "Select a\nFrom t\nwHeRe x Is Null\n",
+    );
+}
+
+#[test]
+fn trailing_commas() {
+    let options = FormatOptions {
+        comma_style: CommaStyle::Trailing,
+        max_width: 30,
+        ..FormatOptions::default()
+    };
+    check_with(
+        options.clone(),
+        "with a as (select 1), b as (select 2) select x, coalesce(first_name, last_name, 'unknown') as name from a",
+        "\
+WITH a AS (
+    SELECT 1
+),
+b AS (
+    SELECT 2
+)
+SELECT
+    x,
+    coalesce(
+        first_name,
+        last_name,
+        'unknown'
+    ) AS name
+FROM a
+",
+    );
+    check_with(
+        options.clone(),
+        "create table t (id int, name text); alter table t add column c int, drop column d",
+        "\
+CREATE TABLE t (
+    id int,
+    name text
+);
+ALTER TABLE t
+    ADD COLUMN c int,
+    DROP COLUMN d
+",
+    );
+    // コメントは項目に付いたまま
+    check_with(
+        options,
+        "select a, -- a の説明\n-- b の前\nb",
+        "SELECT\n    a, -- a の説明\n    -- b の前\n    b\n",
     );
 }

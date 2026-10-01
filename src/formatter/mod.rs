@@ -20,18 +20,45 @@ mod writer;
 use crate::lexer::{Token, TokenKind};
 use crate::parser::parse;
 use crate::syntax::{Element, Node, NodeKind};
-use writer::{INDENT, Writer, is_opaque};
+use writer::{Writer, is_opaque};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatOptions {
     /// 行幅。式がこれを超えるときに折り返す（全角文字は 2 桁と数える）
     pub max_width: usize,
+    /// 1 段の字下げの幅。行頭カンマは項目より 2 桁左に置くので、2 以上にする
+    pub indent_width: usize,
+    pub keyword_case: KeywordCase,
+    pub comma_style: CommaStyle,
 }
 
 impl Default for FormatOptions {
     fn default() -> Self {
-        FormatOptions { max_width: 80 }
+        FormatOptions {
+            max_width: 80,
+            indent_width: 4,
+            keyword_case: KeywordCase::Upper,
+            comma_style: CommaStyle::Leading,
+        }
     }
+}
+
+/// キーワードの大文字・小文字
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeywordCase {
+    Upper,
+    Lower,
+    /// 入力のまま
+    Preserve,
+}
+
+/// 項目を 1 行ずつ並べるときのカンマの位置
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommaStyle {
+    /// `    a` / `  , b`
+    Leading,
+    /// `    a,` / `    b`
+    Trailing,
 }
 
 pub fn format(src: &str) -> String {
@@ -41,8 +68,10 @@ pub fn format(src: &str) -> String {
 pub fn format_with_options(src: &str, options: &FormatOptions) -> String {
     let root = parse(src);
     let mut f = Formatter {
-        w: Writer::new(src, &root),
+        w: Writer::new(src, &root, options.keyword_case),
         max_width: options.max_width,
+        indent_width: options.indent_width,
+        comma_style: options.comma_style,
     };
     f.root(&root);
     f.w.finish()
@@ -92,6 +121,8 @@ const LOOSE_KEYWORDS: &[&str] = &[
 struct Formatter<'a> {
     w: Writer<'a>,
     max_width: usize,
+    indent_width: usize,
+    comma_style: CommaStyle,
 }
 
 /// 空白・コメントを除いた子
@@ -253,9 +284,35 @@ impl<'a> Formatter<'a> {
         let base = self.w.indent();
         for (i, element) in children(node).into_iter().enumerate() {
             if i > 0 {
-                self.w.newline(base + INDENT);
+                self.w.newline(base + self.indent_width);
             }
             self.element(element);
+        }
+    }
+
+    /// 並びの項目の間のカンマを書き、次の項目の行（字下げ `item_indent`）に移る。
+    /// 行頭カンマは項目より `outdent` 桁左に置く。行末カンマは前の項目の行の最後に付ける。
+    fn list_separator(
+        &mut self,
+        comma: &Token<'a>,
+        next_item: Option<Token<'a>>,
+        item_indent: usize,
+        outdent: usize,
+    ) {
+        match self.comma_style {
+            CommaStyle::Leading => {
+                // カンマの後ろの行末コメントは前の項目の行に残し、次の項目の前のコメントはカンマより前に出す
+                self.w.flush_trailing_comments(comma);
+                self.w.newline(item_indent);
+                if let Some(first) = next_item {
+                    self.w.move_leading_comments(&first, comma);
+                }
+                self.w.token_outdented(comma, outdent);
+            }
+            CommaStyle::Trailing => {
+                self.w.token(comma);
+                self.w.newline(item_indent);
+            }
         }
     }
 
@@ -305,7 +362,8 @@ impl<'a> Formatter<'a> {
                             .iter()
                             .any(|k| t.text.eq_ignore_ascii_case(k)) =>
                 {
-                    self.w.token_as(t, &t.text.to_ascii_uppercase(), 0);
+                    let text = self.w.keyword_text(t.text);
+                    self.w.token_as(t, &text, 0);
                 }
                 _ => self.element(element),
             }
@@ -325,12 +383,12 @@ impl<'a> Formatter<'a> {
                     self.w.token(t);
                 }
                 Element::Node(inner) if is_statement(inner.kind) => {
-                    self.w.newline(base + INDENT);
-                    self.statement(inner, base + INDENT);
+                    self.w.newline(base + self.indent_width);
+                    self.statement(inner, base + self.indent_width);
                 }
                 Element::Node(inner) if inner.kind == NodeKind::JoinExpr => {
-                    self.w.newline(base + INDENT);
-                    self.join_expr(inner, base + INDENT);
+                    self.w.newline(base + self.indent_width);
+                    self.join_expr(inner, base + self.indent_width);
                 }
                 _ => self.element(element),
             }
@@ -344,7 +402,7 @@ impl<'a> Formatter<'a> {
                 Element::Node(n)
                     if matches!(n.kind, NodeKind::WhenClause | NodeKind::ElseClause) =>
                 {
-                    self.w.newline(base + INDENT);
+                    self.w.newline(base + self.indent_width);
                     self.inline(n);
                 }
                 Element::Token(t)
@@ -370,13 +428,13 @@ impl<'a> Formatter<'a> {
                     self.node(n);
                 }
                 Element::Token(t) if seen_left && !on_join_line => {
-                    self.w.newline(base + INDENT);
+                    self.w.newline(base + self.indent_width);
                     on_join_line = true;
                     self.w.token(t);
                 }
                 Element::Node(n) if n.kind == NodeKind::JoinCondition => {
-                    self.w.newline(base + 2 * INDENT);
-                    self.condition_clause(n, base + 2 * INDENT);
+                    self.w.newline(base + 2 * self.indent_width);
+                    self.condition_clause(n, base + 2 * self.indent_width);
                 }
                 _ => self.element(element),
             }
