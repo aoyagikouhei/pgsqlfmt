@@ -1,0 +1,100 @@
+# `v0.1.0` のようなタグを push すると、Linux（amd64 / arm64）向けのバイナリを作って GitHub Releases に載せる。
+# musl で静的にリンクするので、glibc の版によらず（Alpine を含む）どの Linux でも動く。
+# アセットの名前に版を入れないので、`releases/latest/download/<名前>` で最新版を取れる。
+# 手動で実行したとき（workflow_dispatch）は、ビルドと動作の確認までで止め、リリースは作らない。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # タグと Cargo.toml の版がずれたまま公開しないようにする
+      - name: Check version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "タグ ${GITHUB_REF_NAME} と Cargo.toml の版 ${version} が一致しません"
+            exit 1
+          fi
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools file
+          # rustup が入っていないランナーイメージでも動くようにする
+          if ! command -v rustup > /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+      # PostgreSQL での実機検証は main の CI で流している（ここでは PGHOST がないので飛ばされる）
+      - name: Test
+        run: cargo test --locked --release
+      - name: Build
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Smoke test
+        run: |
+          bin=target/${{ matrix.target }}/release/pgsqlfmt
+          file "$bin"
+          out=$(printf 'select a, b from t where x = 1' | "$bin")
+          expected=$(printf 'SELECT\n    a\n  , b\nFROM t\nWHERE x = 1')
+          if [ "$out" != "$expected" ]; then
+            printf 'unexpected output:\n%s\n' "$out"
+            exit 1
+          fi
+      - name: Package
+        run: |
+          name=pgsqlfmt-${{ matrix.target }}
+          mkdir -p dist package
+          cp target/${{ matrix.target }}/release/pgsqlfmt README.md package/
+          if [ -f LICENSE ]; then cp LICENSE package/; fi
+          (cd package && tar -czf "../dist/${name}.tar.gz" -- *)
+          (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pgsqlfmt-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      # 同じタグで流し直したときは、作成済みのリリースのアセットを差し替える
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -l dist
+          if ! gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes --verify-tag
+          fi
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

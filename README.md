@@ -29,7 +29,14 @@ GROUP BY
 
 ## クイックスタート
 
-Rust（cargo）があれば、GitHub から直接インストールできます。
+Linux（amd64・arm64）なら、ビルド済みのバイナリを入れられます。
+
+```sh
+curl -sSL "https://github.com/aoyagikouhei/pgsqlfmt/releases/latest/download/pgsqlfmt-$(uname -m)-unknown-linux-musl.tar.gz" | tar xz pgsqlfmt
+sudo mv pgsqlfmt /usr/local/bin/
+```
+
+Rust（cargo）があれば、GitHub から直接インストールすることもできます。
 
 ```sh
 cargo install --git https://github.com/aoyagikouhei/pgsqlfmt

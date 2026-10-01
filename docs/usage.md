@@ -12,6 +12,27 @@ PostgreSQL の SQL と PL/pgSQL（ストアドプロシージャ・関数・DO�
 
 ## インストール
 
+### ビルド済みのバイナリを使う（Linux）
+
+Linux の amd64 と arm64 向けのバイナリを、[GitHub Releases](https://github.com/aoyagikouhei/pgsqlfmt/releases) で配布しています。
+静的にリンクしているので、ディストリビューションによらず動きます。
+
+```sh
+curl -sSL "https://github.com/aoyagikouhei/pgsqlfmt/releases/latest/download/pgsqlfmt-$(uname -m)-unknown-linux-musl.tar.gz" | tar xz pgsqlfmt
+sudo mv pgsqlfmt /usr/local/bin/
+```
+
+| CPU | ファイル |
+| --- | --- |
+| amd64（x86_64） | `pgsqlfmt-x86_64-unknown-linux-musl.tar.gz` |
+| arm64（aarch64） | `pgsqlfmt-aarch64-unknown-linux-musl.tar.gz` |
+
+それぞれのファイルに、SHA-256 のチェックサム（`.sha256`）を添えています。ダウンロードしたファイルは次のように確かめられます。
+
+```sh
+sha256sum -c pgsqlfmt-x86_64-unknown-linux-musl.tar.gz.sha256
+```
+
 ### cargo でインストールする
 
 Rust（cargo）が入っていれば、GitHub から直接ビルドしてインストールできます。

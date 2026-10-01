@@ -6,6 +6,7 @@
 - [テスト](#テスト)
 - [新しい構文に対応する手順](#新しい構文に対応する手順)
 - [CI](#ci)
+- [リリース](#リリース)
 - [配布物](#配布物)
 
 ## 開発環境
@@ -150,10 +151,43 @@ GitHub Actions（`.github/workflows/ci.yml`）が、main への push と PR ご�
 | `check` | 手元と同じ Docker Compose の環境で `make check` を流す（実機検証を含む） |
 | `image` | 配布用イメージをビルドし、実際に整形できることと `--check` が通ることを確かめる |
 
+## リリース
+
+`v0.1.0` のようなタグを push すると、`.github/workflows/release.yml` が GitHub のランナー上でバイナリを作り、GitHub Releases に載せます。
+
+| ターゲット | ランナー |
+| --- | --- |
+| `x86_64-unknown-linux-musl` | `ubuntu-latest` |
+| `aarch64-unknown-linux-musl` | `ubuntu-24.04-arm` |
+
+各ランナーでは、タグと Cargo.toml の版が一致するかを確かめてから、テスト・ビルド・動作の確認をします。
+バイナリは musl で静的にリンクし、`README.md` と一緒に tar.gz にまとめて、SHA-256 のチェックサムを添えます。
+アセットの名前に版を入れないので、`releases/latest/download/<名前>` で最新版を取れます。
+
+リリースの手順は次のとおりです。
+
+1. `Cargo.toml` の `version` を上げ、`Cargo.lock` も更新して main に push します。
+2. main の CI が通ったことを確かめます。
+3. タグを打って push します。
+
+   ```sh
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+4. Release のワークフローが通り、GitHub Releases にアセットが載ったことを確かめます。
+
+タグを打たずにランナー上のビルドだけを試すときは、ワークフローを手動で実行します。ビルドと動作の確認までで止まり、リリースは作りません。
+
+```sh
+gh workflow run Release --ref main
+```
+
 ## 配布物
 
 | ファイル | 内容 |
 | --- | --- |
+| `.github/workflows/release.yml` | タグの push で、Linux 向けのバイナリを GitHub Releases に載せる |
 | `Dockerfile` | 配布用のイメージ。リリースビルドのバイナリだけを含む |
 | `.pre-commit-hooks.yaml` | pre-commit のフック（`pgsqlfmt` と `pgsqlfmt-check`）。上のイメージで動く |
 
