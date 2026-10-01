@@ -38,7 +38,7 @@ jobs:
         run: make image
       - name: Format with the image
         run: |
-          out=$(printf 'select a, b from t where x = 1' | docker run --rm -i sql-formatter)
+          out=$(printf 'select a, b from t where x = 1' | docker run --rm -i pgsqlfmt)
           expected=$(printf 'SELECT\n    a\n  , b\nFROM t\nWHERE x = 1')
           if [ "$out" != "$expected" ]; then
             printf 'unexpected output:\n%s\n' "$out"
@@ -46,4 +46,4 @@ jobs:
           fi
           # 整形済みのファイルを --check に通す
           printf '%s\n' "$expected" > formatted.sql
-          docker run --rm -v "$PWD:/src" sql-formatter --check formatted.sql
+          docker run --rm -v "$PWD:/src" pgsqlfmt --check formatted.sql

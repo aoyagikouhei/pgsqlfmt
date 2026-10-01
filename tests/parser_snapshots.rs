@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use sql_formatter::parser::parse;
+use pgsqlfmt::parser::parse;
 
 fn debug_tree(path: &Path) -> String {
     let src = std::fs::read_to_string(path).unwrap();

@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use sql_formatter::lexer::tokenize;
-use sql_formatter::parser::parse;
+use pgsqlfmt::lexer::tokenize;
+use pgsqlfmt::parser::parse;
 
 fn fixtures() -> Vec<String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");

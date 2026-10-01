@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
-use sql_formatter::lexer::{Token, TokenKind, tokenize};
-use sql_formatter::{CommaStyle, FormatOptions, KeywordCase, format, format_with_options};
+use pgsqlfmt::lexer::{Token, TokenKind, tokenize};
+use pgsqlfmt::{CommaStyle, FormatOptions, KeywordCase, format, format_with_options};
 
 fn fixtures() -> Vec<String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");

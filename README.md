@@ -1,4 +1,4 @@
-# sql-formatter-rs
+# pgsqlfmt
 
 PostgreSQL の SQL / ストアドプロシージャ（PL/pgSQL）用フォーマッター（Rust 製）。
 
@@ -7,11 +7,11 @@ PostgreSQL の SQL / ストアドプロシージャ（PL/pgSQL）用フォーマ
 配布用のイメージ（ルートの `Dockerfile`、リリースビルドのバイナリだけを含む）を作って使います。
 
 ```sh
-make image                                            # sql-formatter イメージを作る
-docker run --rm -i sql-formatter < query.sql          # 標準入力を整形して標準出力へ
-docker run --rm -v "$PWD:/src" sql-formatter --check .    # 整形されていない *.sql の一覧（あれば終了コード 1）
-docker run --rm -v "$PWD:/src" sql-formatter --write db/  # ファイルを整形して上書き
-docker run --rm -i sql-formatter --max-width 100 < query.sql  # 行幅を変える（既定は 80）
+make image                                               # pgsqlfmt イメージを作る
+docker run --rm -i pgsqlfmt < query.sql                  # 標準入力を整形して標準出力へ
+docker run --rm -v "$PWD:/src" pgsqlfmt --check .        # 整形されていない *.sql の一覧（あれば終了コード 1）
+docker run --rm -v "$PWD:/src" pgsqlfmt --write db/      # ファイルを整形して上書き
+docker run --rm -i pgsqlfmt --max-width 100 < query.sql  # 行幅を変える（既定は 80）
 ```
 
 - ファイルを指定しなければ標準入力を整形します（`-` も標準入力）。1 つのファイルだけなら整形結果を標準出力に書きます。
@@ -39,11 +39,11 @@ Docker があれば、Rust を入れなくても pre-commit のフックとし�
 ```yaml
 # .pre-commit-config.yaml
 repos:
-  - repo: https://github.com/aoyagikouhei/sql-formatter-rs
+  - repo: https://github.com/aoyagikouhei/pgsqlfmt
     rev: main  # タグやコミットを指定する
     hooks:
-      - id: sql-formatter        # 整形して書き換える
-      # - id: sql-formatter-check  # 確かめるだけ（CI 向け）
+      - id: pgsqlfmt          # 整形して書き換える
+      # - id: pgsqlfmt-check  # 確かめるだけ（CI 向け）
 ```
 
 整形のスタイル:

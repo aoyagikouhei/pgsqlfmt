@@ -16,10 +16,10 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use sql_formatter::lexer::TokenKind;
-use sql_formatter::parser::parse;
-use sql_formatter::syntax::{Element, Node, NodeKind};
-use sql_formatter::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
+use pgsqlfmt::lexer::TokenKind;
+use pgsqlfmt::parser::parse;
+use pgsqlfmt::syntax::{Element, Node, NodeKind};
+use pgsqlfmt::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
 
 fn postgres_available() -> bool {
     if std::env::var_os("PGHOST").is_none() {

@@ -1,4 +1,4 @@
-//! CLI（`sql-formatter` バイナリ）を実際に起動して、ファイルの整形・確認の動きを確かめる。
+//! CLI（`pgsqlfmt` バイナリ）を実際に起動して、ファイルの整形・確認の動きを確かめる。
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,8 +15,7 @@ impl TempDir {
     fn new() -> Self {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir =
-            std::env::temp_dir().join(format!("sql-formatter-cli-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pgsqlfmt-cli-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         TempDir(dir)
@@ -37,7 +36,7 @@ impl Drop for TempDir {
 }
 
 fn run(args: &[&str], stdin: &str, cwd: &Path) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sql-formatter"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pgsqlfmt"))
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::piped())

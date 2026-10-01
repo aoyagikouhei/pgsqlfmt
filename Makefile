@@ -36,8 +36,8 @@ db-reset: ## DB ボリュームを削除して作り直す
 	-docker volume rm sql-formatter-rs_pg-data
 	$(COMPOSE) up -d db
 
-image: ## 配布用の sql-formatter イメージを作る
-	docker build -t sql-formatter .
+image: ## 配布用の pgsqlfmt イメージを作る
+	docker build -t pgsqlfmt .
 
 logs:
 	$(COMPOSE) logs -f

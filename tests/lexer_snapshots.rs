@@ -1,7 +1,7 @@
 //! `tests/fixtures/lexer/*.sql` を字句解析し、トークン列をスナップショットと比較する。
 //! 新しいケースは `.sql` を追加して `cargo insta test --review` で承認する。
 
-use sql_formatter::lexer::{TokenKind, tokenize};
+use pgsqlfmt::lexer::{TokenKind, tokenize};
 
 #[test]
 fn lexer_snapshots() {

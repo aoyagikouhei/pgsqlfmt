@@ -2,10 +2,10 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use sql_formatter::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
+use pgsqlfmt::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
 
 const USAGE: &str = "\
-使い方: sql-formatter [オプション] [ファイルまたはディレクトリ ...]
+使い方: pgsqlfmt [オプション] [ファイルまたはディレクトリ ...]
 
 SQL を整形する。ファイルを指定しなければ標準入力を整形して標準出力に書き出す。
 ディレクトリを指定すると、その下の *.sql を探す（. で始まるものは除く）。

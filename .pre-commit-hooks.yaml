@@ -1,13 +1,13 @@
 # pre-commit のフック。Docker があれば、Rust を入れなくても使える。
-- id: sql-formatter
-  name: sql-formatter
+- id: pgsqlfmt
+  name: pgsqlfmt
   description: SQL / PL/pgSQL のファイルを整形する
-  entry: sql-formatter --write
+  entry: pgsqlfmt --write
   language: docker
   types: [sql]
-- id: sql-formatter-check
-  name: sql-formatter (check)
+- id: pgsqlfmt-check
+  name: pgsqlfmt (check)
   description: SQL / PL/pgSQL のファイルが整形済みか確かめる（書き換えない）
-  entry: sql-formatter --check
+  entry: pgsqlfmt --check
   language: docker
   types: [sql]

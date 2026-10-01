@@ -1,7 +1,7 @@
 //! `tests/fixtures/*/*.sql` を整形し、結果をスナップショットと比較する。
 //! 新しいケースは `.sql` を追加して `make snapshot-review` で承認する。
 
-use sql_formatter::format;
+use pgsqlfmt::format;
 
 #[test]
 fn formatter_snapshots() {
