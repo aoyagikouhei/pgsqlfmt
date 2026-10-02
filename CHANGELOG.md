@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-02
+
+### Changed
+
+- The `--help` text and all CLI messages are now in English (for example `formatted: a.sql`, `not formatted: a.sql`, `N file(s) not formatted`; stdin is shown as `<stdin>`). The documentation and the comments in the source are in English as well
+
 ## [0.2.0] - 2026-10-02
 
 ### Added
@@ -45,6 +51,7 @@ Initial release.
 - Distribution: Linux binaries (x86_64 / aarch64, statically linked with musl) on GitHub Releases, a Docker image, and pre-commit hooks
 - MIT license
 
-[Unreleased]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aoyagikouhei/pgsqlfmt/releases/tag/v0.1.0

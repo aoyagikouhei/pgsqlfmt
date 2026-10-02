@@ -62,7 +62,7 @@ For pre-commit, add the following to `.pre-commit-config.yaml`.
 ```yaml
 repos:
   - repo: https://github.com/aoyagikouhei/pgsqlfmt
-    rev: v0.2.0
+    rev: v0.2.1
     hooks:
       - id: pgsqlfmt
 ```

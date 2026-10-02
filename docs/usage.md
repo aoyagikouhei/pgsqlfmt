@@ -120,7 +120,7 @@ pgsqlfmt can be used as a [pre-commit](https://pre-commit.com/) hook. The hook r
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/aoyagikouhei/pgsqlfmt
-    rev: v0.2.0  # a release tag
+    rev: v0.2.1  # a release tag
     hooks:
       - id: pgsqlfmt          # format and rewrite
       # - id: pgsqlfmt-check  # check only (for CI)

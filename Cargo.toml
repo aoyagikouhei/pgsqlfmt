@@ -1,6 +1,6 @@
 [package]
 name = "pgsqlfmt"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "A formatter for PostgreSQL SQL / PL/pgSQL"
 license = "MIT"
