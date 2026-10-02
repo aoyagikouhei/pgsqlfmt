@@ -1,4 +1,4 @@
-//! SELECT 文（WITH・集合演算・VALUES・TABLE を含む問い合わせ）。
+//! SELECT statements (queries, including WITH, set operations, VALUES, and TABLE).
 
 use super::Parser;
 use super::keywords::{CLAUSE_KEYWORDS, JOIN_KEYWORDS, is_join_keyword, is_reserved};
@@ -6,7 +6,8 @@ use crate::lexer::TokenKind;
 use crate::syntax::NodeKind;
 
 impl Parser<'_> {
-    /// n 番目から問い合わせ（SELECT / WITH / VALUES / TABLE、またはそれを括弧で囲んだもの）が始まるか
+    /// Whether a query (SELECT / WITH / VALUES / TABLE, possibly wrapped in parentheses) starts
+    /// at the n-th token
     pub(super) fn at_query_start(&self, n: usize) -> bool {
         let mut n = n;
         while self.nth_is(n, TokenKind::LParen) {
@@ -30,7 +31,7 @@ impl Parser<'_> {
         self.wrap(cp, NodeKind::SelectStmt);
     }
 
-    /// WITH より後ろの問い合わせ本体。呼び出し側で `SelectStmt` に包む。
+    /// The query body after WITH. The caller wraps it in a `SelectStmt`.
     pub(super) fn select_rest(&mut self) {
         self.select_body(0);
         loop {
@@ -52,7 +53,7 @@ impl Parser<'_> {
                 }
                 self.finish_node();
             } else if self.at_kw("into") {
-                // PL/pgSQL では INTO を問い合わせの最後にも書ける
+                // In PL/pgSQL, INTO may also come at the end of the query
                 self.result_into_clause();
             } else if self.at_kw("fetch") {
                 self.keyword_clause(NodeKind::FetchClause);
@@ -64,7 +65,8 @@ impl Parser<'_> {
         }
     }
 
-    /// 中身を細かく解釈しない句（`FETCH FIRST ...` / `FOR UPDATE ...`）。次の句の手前までを取り込む。
+    /// A clause whose contents are not parsed in detail (`FETCH FIRST ...` / `FOR UPDATE ...`).
+    /// Consumes everything up to the next clause.
     fn keyword_clause(&mut self, kind: NodeKind) {
         self.start_node(kind);
         self.bump_kw();
@@ -74,7 +76,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 集合演算。`INTERSECT` は `UNION` / `EXCEPT` より強く結びつく。
+    /// Set operations. `INTERSECT` binds tighter than `UNION` / `EXCEPT`.
     fn select_body(&mut self, min_bp: u8) {
         let cp = self.checkpoint();
         self.select_primary();
@@ -126,7 +128,7 @@ impl Parser<'_> {
             self.expect_closing(TokenKind::RParen);
             self.finish_node();
         } else {
-            // `WITH ... INSERT` など、問い合わせ以外が続く場合
+            // Something other than a query follows, e.g. `WITH ... INSERT`
             self.error_until(|_| false);
         }
     }
@@ -174,7 +176,7 @@ impl Parser<'_> {
         } else {
             self.eat_kw("all");
         }
-        // PL/pgSQL の `SELECT INTO target expr, ... FROM ...`（INTO を項目より前に書く形）
+        // PL/pgSQL `SELECT INTO target expr, ... FROM ...` (the form with INTO before the items)
         if self.at_kw("into") {
             self.result_into_clause();
         }
@@ -216,7 +218,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `INTO [TEMP | UNLOGGED] [TABLE] name`（SQL）/ `INTO [STRICT] target, ...`（PL/pgSQL）
+    /// `INTO [TEMP | UNLOGGED] [TABLE] name` (SQL) / `INTO [STRICT] target, ...` (PL/pgSQL)
     pub(super) fn result_into_clause(&mut self) {
         self.start_node(NodeKind::IntoClause);
         self.bump_kw();
@@ -249,8 +251,9 @@ impl Parser<'_> {
         self.opt_alias_except(table_alias, &[]);
     }
 
-    /// 別名。`AS` なしの別名は、予約語でも `not_bare` でもない名前だけを受け付ける。
-    /// 表の別名（`table_alias`）では、結合のキーワードも別名にしない。列名の並びを付けられる。
+    /// An alias. Without `AS`, only a name that is neither a reserved word nor in `not_bare` is
+    /// accepted. For a table alias (`table_alias`), join keywords are not taken as the alias
+    /// either, and a column list may follow.
     pub(super) fn opt_alias_except(&mut self, table_alias: bool, not_bare: &[&str]) {
         let bare = self.current().is_some_and(|t| match t.kind {
             TokenKind::QuotedIdent { .. } => true,
@@ -307,7 +310,7 @@ impl Parser<'_> {
                 if self.at(TokenKind::LParen) {
                     self.expr_list();
                 }
-                // `USING (...) AS j` の別名は AS が必須
+                // The alias in `USING (...) AS j` requires AS
                 if self.at_kw("as") {
                     self.opt_alias(false);
                 }
@@ -333,7 +336,7 @@ impl Parser<'_> {
         self.nth_kw(n, "join")
     }
 
-    /// FROM 句の結合以外の要素: 表、副問い合わせ、関数、括弧で囲んだ結合
+    /// A non-join element of the FROM clause: a table, subquery, function, or parenthesized join
     fn table_primary(&mut self) -> bool {
         let cp = self.checkpoint();
         let lateral = self.eat_kw("lateral");
@@ -376,7 +379,8 @@ impl Parser<'_> {
                 self.bump();
             }
             self.opt_alias(true);
-            // `TABLESAMPLE method (args) [REPEATABLE (seed)]`。抽出方法の名前は関数名と同じく入力のまま
+            // `TABLESAMPLE method (args) [REPEATABLE (seed)]`. The sampling method name is kept
+            // verbatim, like a function name
             if self.eat_kw("tablesample") {
                 if self.at_name() {
                     self.bump();
@@ -407,7 +411,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `GROUPING SETS (...)` / `ROLLUP (...)` / `CUBE (...)` か式
+    /// `GROUPING SETS (...)` / `ROLLUP (...)` / `CUBE (...)`, or an expression
     fn group_item(&mut self) -> bool {
         let grouping_sets = self.at_kw("grouping") && self.nth_kw(1, "sets");
         let rollup_or_cube =
@@ -427,7 +431,7 @@ impl Parser<'_> {
         self.expr()
     }
 
-    /// WINDOW 句の `name AS (...)`
+    /// `name AS (...)` in a WINDOW clause
     fn window_def(&mut self) -> bool {
         if !self.at_name() {
             return false;
@@ -442,7 +446,8 @@ impl Parser<'_> {
         true
     }
 
-    /// `ORDER BY item, ...`。`is_end` は並びの終わり（窓関数では `ROWS` なども終わりになる）。
+    /// `ORDER BY item, ...`. `is_end` marks the end of the list (in a window function, `ROWS`
+    /// and the like also end it).
     pub(super) fn order_by_clause(&mut self, is_end: fn(&Self) -> bool) {
         self.start_node(NodeKind::OrderByClause);
         self.bump_kw();

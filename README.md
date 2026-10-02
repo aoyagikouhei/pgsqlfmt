@@ -1,19 +1,19 @@
 # pgsqlfmt
 
-PostgreSQL の SQL と PL/pgSQL（ストアドプロシージャ・関数・DO）のフォーマッターです。
+A formatter for PostgreSQL SQL and PL/pgSQL (stored procedures, functions, and DO blocks).
 
-- 問い合わせ・DML・DDL・関数定義・PL/pgSQL の本体を、句ごとに改行して整形します
-- コメントは残し、解釈できない部分は入力のまま出すので、整形で SQL の意味が変わりません
-- 行幅・字下げの幅・キーワードの大文字小文字・カンマの位置を変えられます
-- pre-commit のフックとしても使えます
+- Formats queries, DML, DDL, function definitions, and PL/pgSQL bodies with one clause per line
+- Keeps comments and outputs anything it cannot parse verbatim, so formatting never changes the meaning of your SQL
+- Lets you change the line width, indent width, keyword case, and comma position
+- Can be used as a pre-commit hook
 
 ```sql
--- 入力
+-- input
 select c.id, c.name, count(o.id) as orders from customers c left join orders o on o.customer_id = c.id where c.active group by c.id, c.name;
 ```
 
 ```sql
--- 出力
+-- output
 SELECT
     c.id
   , c.name
@@ -27,37 +27,37 @@ GROUP BY
   , c.name;
 ```
 
-## クイックスタート
+## Quick start
 
-Linux（amd64・arm64）なら、ビルド済みのバイナリを入れられます。
+On Linux (amd64 and arm64), you can install a prebuilt binary.
 
 ```sh
 curl -sSL "https://github.com/aoyagikouhei/pgsqlfmt/releases/latest/download/pgsqlfmt-$(uname -m)-unknown-linux-musl.tar.gz" | tar xz pgsqlfmt
 sudo mv pgsqlfmt /usr/local/bin/
 ```
 
-Rust（cargo）があれば、GitHub から直接インストールすることもできます。
+If you have Rust (cargo), you can also install directly from GitHub.
 
 ```sh
 cargo install --git https://github.com/aoyagikouhei/pgsqlfmt
 ```
 
-Rust を入れずに Docker で使うこともできます。
+You can also use it through Docker without installing Rust.
 
 ```sh
 docker build -t pgsqlfmt https://github.com/aoyagikouhei/pgsqlfmt.git
 docker run --rm -i pgsqlfmt < query.sql
 ```
 
-整形のしかたは次のとおりです。
+Formatting works like this.
 
 ```sh
-pgsqlfmt < query.sql      # 標準入力を整形して標準出力へ
-pgsqlfmt --write db/      # db/ の下の *.sql を整形して上書き
-pgsqlfmt --check .        # 整形されていない *.sql があれば終了コード 1
+pgsqlfmt < query.sql      # format stdin and write to stdout
+pgsqlfmt --write db/      # format and overwrite *.sql under db/
+pgsqlfmt --check .        # exit with code 1 if any *.sql is not formatted
 ```
 
-pre-commit では、`.pre-commit-config.yaml` に次のように書きます。
+For pre-commit, add the following to `.pre-commit-config.yaml`.
 
 ```yaml
 repos:
@@ -67,12 +67,12 @@ repos:
       - id: pgsqlfmt
 ```
 
-## ドキュメント
+## Documentation
 
-- [使い方](docs/usage.md): インストール、オプション、pre-commit、整形のスタイル、対応している文
-- [開発](docs/development.md): 開発環境、コードの構成、テスト、新しい構文に対応する手順
-- [変更履歴](CHANGELOG.md)
+- [Usage](docs/usage.md): installation, options, pre-commit, formatting style, supported statements
+- [Development](docs/development.md): development environment, code layout, tests, how to add support for new syntax
+- [Changelog](CHANGELOG.md)
 
-## ライセンス
+## License
 
 [MIT](LICENSE)

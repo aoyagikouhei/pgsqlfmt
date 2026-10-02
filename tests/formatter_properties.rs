@@ -1,8 +1,10 @@
-//! 整形の性質を、すべてのフィクスチャと、それを途中で切ったもの・トークンを 1 つ抜いたもので確かめる。
-//! - 意味のあるトークンが、順番どおりに 1 つも欠けずに残る（識別子の大文字小文字だけは変わってよい）
-//! - コメントも、コメント同士の順番どおりに 1 つも欠けずに残る
-//!   （行頭カンマにするとき `a, -- x` を `a -- x` / `, b` にするので、トークンとの前後は変わってよい）
-//! - もう一度整形しても変わらない
+//! Checks the properties of formatting on every fixture, on each truncation of it, and on each
+//! version of it with one token removed.
+//! - Every significant token survives, in order (only the case of identifiers may change)
+//! - Every comment survives too, in order relative to the other comments
+//!   (leading commas turn `a, -- x` into `a -- x` / `, b`, so the position relative to tokens
+//!   may change)
+//! - Formatting again changes nothing
 
 use std::path::Path;
 
@@ -24,7 +26,7 @@ fn fixtures() -> Vec<String> {
     sources
 }
 
-/// すべてのフィクスチャの変形に `check` を実行する。CPU の数だけのスレッドに分けて並列に動かす。
+/// Runs `check` on every variant of every fixture, in parallel on one thread per CPU.
 fn for_each_input(check: impl Fn(&str) + Sync) {
     let inputs: Vec<String> = fixtures().iter().flat_map(|src| variants(src)).collect();
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
@@ -37,7 +39,7 @@ fn for_each_input(check: impl Fn(&str) + Sync) {
     });
 }
 
-/// 元の入力と、それを途中で切ったもの・トークンを 1 つ抜いたもの
+/// The original input, each truncation of it, and each version of it with one token removed
 fn variants(src: &str) -> Vec<String> {
     let mut out = vec![src.to_string()];
     for token in tokenize(src) {
@@ -48,7 +50,8 @@ fn variants(src: &str) -> Vec<String> {
     out
 }
 
-/// トークン列。閉じたドル引用符（関数本体など、整形で中身が変わるもの）は、区切りと中身のトークンに展開する。
+/// The token stream. Terminated dollar-quoted strings (function bodies etc., whose contents change
+/// when formatted) are expanded into the delimiters and the tokens of the contents.
 fn expanded_tokens(src: &str) -> Vec<Token<'_>> {
     let mut out = Vec::new();
     for token in tokenize(src) {
@@ -71,7 +74,7 @@ fn expanded_tokens(src: &str) -> Vec<Token<'_>> {
     out
 }
 
-/// 空白・コメント以外のトークン。識別子は大文字小文字を区別しない。
+/// The tokens other than whitespace and comments. Identifiers are compared case-insensitively.
 fn significant(src: &str) -> Vec<(TokenKind, String)> {
     expanded_tokens(src)
         .into_iter()
@@ -99,13 +102,14 @@ fn comments(src: &str) -> Vec<String> {
 fn tokens_and_comments_are_preserved() {
     for_each_input(|input| {
         let output = format(input);
-        let context = format!("\n--- 入力 ---\n{input}\n--- 出力 ---\n{output}");
+        let context = format!("\n--- input ---\n{input}\n--- output ---\n{output}");
         assert_eq!(significant(&output), significant(input), "{context}");
         assert_eq!(comments(&output), comments(input), "{context}");
     });
 }
 
-/// 狭い行幅や既定以外の設定でも、トークン・コメントが残り、2 回整形しても変わらない
+/// Tokens and comments survive with a narrow width or non-default options too, and a second pass
+/// changes nothing
 #[test]
 fn other_options_are_lossless_and_idempotent() {
     let option_sets = [
@@ -130,7 +134,7 @@ fn other_options_are_lossless_and_idempotent() {
         for options in &option_sets {
             let once = format_with_options(input, options);
             let context = format!(
-                "\n--- 設定 ---\n{options:?}\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}"
+                "\n--- options ---\n{options:?}\n--- input ---\n{input}\n--- first pass ---\n{once}"
             );
             assert_eq!(significant(&once), significant(input), "{context}");
             assert_eq!(comments(&once), comments(input), "{context}");
@@ -146,7 +150,7 @@ fn formatting_is_idempotent() {
         let twice = format(&once);
         assert_eq!(
             twice, once,
-            "\n--- 入力 ---\n{input}\n--- 1 回目 ---\n{once}"
+            "\n--- input ---\n{input}\n--- first pass ---\n{once}"
         );
     });
 }

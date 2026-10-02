@@ -1,5 +1,5 @@
-//! `tests/fixtures/{parser,plpgsql}/*.sql` を構文解析し、構文木をスナップショットと比較する。
-//! 新しいケースは `.sql` を追加して `make snapshot-review` で承認する。
+//! Parses `tests/fixtures/{parser,plpgsql}/*.sql` and compares the syntax trees with the snapshots.
+//! To add a case, add a `.sql` file and approve it with `make snapshot-review`.
 
 use std::path::Path;
 
@@ -8,7 +8,7 @@ use pgsqlfmt::parser::parse;
 fn debug_tree(path: &Path) -> String {
     let src = std::fs::read_to_string(path).unwrap();
     let tree = parse(&src);
-    assert_eq!(tree.text(), src, "木のテキストが入力と一致すること");
+    assert_eq!(tree.text(), src, "the tree's text must match the input");
     tree.debug_tree()
 }
 

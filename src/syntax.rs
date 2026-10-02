@@ -1,8 +1,8 @@
-//! 構文木。
+//! The syntax tree.
 //!
-//! 空白・コメントを含むすべてのトークンを保持するロスレスな木で、
-//! 木のトークンを順につなげると入力と一致する。
-//! ノードは種類と子（ノードかトークン）の並びだけを持つ汎用の形にしている。
+//! A lossless tree that keeps every token, including whitespace and comments, so concatenating
+//! the tree's tokens in order reproduces the input.
+//! Nodes have a generic shape: just a kind and a sequence of children (nodes or tokens).
 
 use std::fmt::Write;
 
@@ -11,19 +11,19 @@ use crate::lexer::{Token, TokenKind};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {
     Root,
-    /// 対応していない文。トークンをそのまま保持する
+    /// An unsupported statement. Holds its tokens as they are
     RawStatement,
-    /// 対応している構文の中で解釈できなかったトークン列
+    /// A run of tokens that could not be interpreted inside a supported construct
     Error,
 
     // ---- SELECT ----
-    /// WITH・集合演算・ORDER BY・LIMIT などを含む問い合わせ全体
+    /// A whole query, including WITH, set operations, ORDER BY, LIMIT and so on
     SelectStmt,
     WithClause,
     Cte,
     /// `UNION` / `INTERSECT` / `EXCEPT`
     SetOperation,
-    /// `(SELECT ...)`（集合演算の項）
+    /// `(SELECT ...)` (an operand of a set operation)
     ParenSelect,
     /// `SELECT ... FROM ... WHERE ... GROUP BY ... HAVING ... WINDOW ...`
     SimpleSelect,
@@ -37,11 +37,11 @@ pub enum NodeKind {
     IntoClause,
     FromClause,
     TableRef,
-    /// FROM 句の `(SELECT ...) alias`
+    /// `(SELECT ...) alias` in a FROM clause
     DerivedTable,
-    /// FROM 句の `func(...) alias`
+    /// `func(...) alias` in a FROM clause
     FunctionTable,
-    /// FROM 句の `(a JOIN b ...) alias`
+    /// `(a JOIN b ...) alias` in a FROM clause
     ParenJoin,
     JoinExpr,
     /// `ON expr` / `USING (...)`
@@ -52,7 +52,7 @@ pub enum NodeKind {
     GroupingSets,
     HavingClause,
     WindowClause,
-    /// WINDOW 句の `name AS (...)`
+    /// `name AS (...)` in a WINDOW clause
     WindowDef,
     OrderByClause,
     SortItem,
@@ -69,7 +69,7 @@ pub enum NodeKind {
     SetClause,
     /// `col = expr` / `(a, b) = (...)`
     SetItem,
-    /// DELETE の `USING ...`
+    /// `USING ...` in DELETE
     UsingClause,
     ReturningClause,
 
@@ -80,10 +80,10 @@ pub enum NodeKind {
 
     // ---- DDL ----
     CreateTableStmt,
-    /// CREATE TABLE の `(列, 制約, ...)`
+    /// The `(column, constraint, ...)` of CREATE TABLE
     TableElementList,
     ColumnDef,
-    /// 表制約（`LIKE source` を含む）
+    /// A table constraint (including `LIKE source`)
     TableConstraint,
     CreateIndexStmt,
     /// `CREATE [MATERIALIZED] VIEW`
@@ -93,7 +93,7 @@ pub enum NodeKind {
     DropStmt,
     /// `CREATE [TEMP | UNLOGGED] SEQUENCE`
     CreateSequenceStmt,
-    /// シーケンスのオプション（`INCREMENT BY 2` / `NO CYCLE` / `OWNED BY t.c` など）
+    /// A sequence option (`INCREMENT BY 2` / `NO CYCLE` / `OWNED BY t.c` etc.)
     SequenceOption,
     /// `CREATE TYPE name [AS ENUM (...) | AS (...) | AS RANGE (...) | (...)]`
     CreateTypeStmt,
@@ -106,11 +106,11 @@ pub enum NodeKind {
     SetStmt,
     /// `EXPLAIN [options] statement`
     ExplainStmt,
-    /// `BEGIN` / `COMMIT` / `ROLLBACK` / `SAVEPOINT` などのトランザクション制御
+    /// Transaction control such as `BEGIN` / `COMMIT` / `ROLLBACK` / `SAVEPOINT`
     TransactionStmt,
-    /// `ALTER TABLE` 以外の `ALTER object name action ...`
+    /// `ALTER object name action ...` other than `ALTER TABLE`
     AlterStmt,
-    /// `GRANT ... ON ... TO ...` / `REVOKE ... ON ... FROM ...`（ロールの付与も）
+    /// `GRANT ... ON ... TO ...` / `REVOKE ... ON ... FROM ...` (including role grants)
     GrantStmt,
     /// `TRUNCATE [TABLE] name, ... [RESTART IDENTITY] [CASCADE]`
     TruncateStmt,
@@ -118,20 +118,21 @@ pub enum NodeKind {
     CommentStmt,
     /// `CREATE [OR REPLACE] [CONSTRAINT] TRIGGER`
     CreateTriggerStmt,
-    /// トリガーの句（`BEFORE ... ON table` / `FOR EACH ROW` / `WHEN (...)` / `EXECUTE FUNCTION f()` など）
+    /// A trigger clause (`BEFORE ... ON table` / `FOR EACH ROW` / `WHEN (...)` /
+    /// `EXECUTE FUNCTION f()` etc.)
     TriggerClause,
 
-    // ---- 関数・プロシージャ ----
+    // ---- Functions and procedures ----
     /// `CREATE [OR REPLACE] FUNCTION / PROCEDURE`
     CreateFunctionStmt,
-    /// 引数や `RETURNS TABLE` の列の並び
+    /// The list of parameters, or of `RETURNS TABLE` columns
     ParamList,
     Param,
     /// `RETURNS type` / `RETURNS TABLE (...)`
     ReturnsClause,
-    /// `LANGUAGE plpgsql` / `AS $$...$$` / `IMMUTABLE` など
+    /// `LANGUAGE plpgsql` / `AS $$...$$` / `IMMUTABLE` etc.
     FunctionOption,
-    /// 中身を解析したドル引用符の本体（`$tag$` と中身と `$tag$`）
+    /// A dollar-quoted body whose contents were parsed (`$tag$`, the contents and `$tag$`)
     FunctionBody,
     /// `BEGIN ATOMIC ... END`
     AtomicBody,
@@ -144,7 +145,7 @@ pub enum NodeKind {
     /// `<<label>>`
     PlLabel,
     PlDeclareSection,
-    /// 変数・カーソル・別名の宣言
+    /// A variable, cursor or alias declaration
     PlDecl,
     PlExceptionSection,
     /// `WHEN cond THEN ...`
@@ -154,10 +155,10 @@ pub enum NodeKind {
     PlIf,
     /// `ELSIF cond THEN ...`
     PlElsif,
-    /// IF / CASE の `ELSE ...`
+    /// `ELSE ...` of IF / CASE
     PlElse,
     PlCase,
-    /// CASE 文の `WHEN ... THEN ...`
+    /// `WHEN ... THEN ...` of a CASE statement
     PlCaseWhen,
     /// `LOOP` / `WHILE` / `FOR` / `FOREACH`
     PlLoop,
@@ -166,28 +167,29 @@ pub enum NodeKind {
     PlReturn,
     PlRaise,
     PlAssert,
-    /// `PERFORM ...`（SELECT の代わりに PERFORM を書く問い合わせ）
+    /// `PERFORM ...` (a query written with PERFORM in place of SELECT)
     PlPerform,
     PlExecute,
     PlGetDiagnostics,
     PlOpen,
     /// `NULL;`
     PlNull,
-    /// 中身を細かく解釈しない文（`FETCH` / `MOVE` / `CLOSE` / `COMMIT` / `ROLLBACK`）
+    /// A statement whose contents are not interpreted in detail (`FETCH` / `MOVE` / `CLOSE` /
+    /// `COMMIT` / `ROLLBACK`)
     PlSimpleStmt,
-    /// 本体の中の SQL 文と、その後ろの `;`
+    /// A SQL statement inside a body, with the `;` after it
     PlSqlStmt,
     /// `USING expr, ...`
     PlUsing,
 
-    // ---- 式 ----
+    // ---- Expressions ----
     BinaryExpr,
     PrefixExpr,
-    /// `IS [NOT] NULL` / `ISNULL` / `IS DISTINCT FROM` など
+    /// `IS [NOT] NULL` / `ISNULL` / `IS DISTINCT FROM` etc.
     IsExpr,
     BetweenExpr,
     InExpr,
-    /// `LIKE` / `ILIKE` / `SIMILAR TO`（`ESCAPE` を含む）
+    /// `LIKE` / `ILIKE` / `SIMILAR TO` (including `ESCAPE`)
     LikeExpr,
     /// `expr::type`
     CastExpr,
@@ -199,14 +201,14 @@ pub enum NodeKind {
     FieldAccess,
     /// `a` / `t.a` / `t.*` / `*`
     ColumnRef,
-    /// 数値・文字列・`NULL`・`TRUE`・`FALSE`・`DEFAULT`
+    /// A number, string, `NULL`, `TRUE`, `FALSE` or `DEFAULT`
     Literal,
     /// `$1`
     ParamRef,
-    /// `interval '1 day'` など
+    /// `interval '1 day'` etc.
     TypedLiteral,
     FuncCall,
-    /// 関数呼び出しの `(...)`
+    /// The `(...)` of a function call
     ArgList,
     WithinGroupClause,
     FilterClause,
@@ -214,7 +216,7 @@ pub enum NodeKind {
     /// `(PARTITION BY ... ORDER BY ... ROWS ...)`
     WindowSpec,
     PartitionByClause,
-    /// `ROWS BETWEEN ... AND ...` など
+    /// `ROWS BETWEEN ... AND ...` etc.
     FrameClause,
     CaseExpr,
     WhenClause,
@@ -224,12 +226,12 @@ pub enum NodeKind {
     ParenExpr,
     /// `(a, b)` / `ROW(a, b)`
     RowExpr,
-    /// 式の中の `(SELECT ...)`
+    /// `(SELECT ...)` inside an expression
     SubqueryExpr,
     ExistsExpr,
     /// `ARRAY[...]` / `ARRAY(SELECT ...)`
     ArrayExpr,
-    /// `IN (...)` や `VALUES (...)` などの括弧付きの式の並び
+    /// A parenthesized list of expressions, as in `IN (...)` or `VALUES (...)`
     ExprList,
     TypeName,
 }
@@ -247,7 +249,7 @@ pub enum Element<'a> {
 }
 
 impl<'a> Node<'a> {
-    /// 配下のトークンを先頭から順に呼び出す
+    /// Calls `f` on every token under this node, in order from the start
     pub fn for_each_token(&self, f: &mut impl FnMut(&Token<'a>)) {
         for child in &self.children {
             match child {
@@ -257,14 +259,14 @@ impl<'a> Node<'a> {
         }
     }
 
-    /// 元のテキスト（空白・コメントを含む）
+    /// The original text (including whitespace and comments)
     pub fn text(&self) -> String {
         let mut text = String::new();
         self.for_each_token(&mut |t| text.push_str(t.text));
         text
     }
 
-    /// 木を字下げ付きで表示する（空白トークンは省く）。テストとデバッグ用。
+    /// Renders the tree with indentation (whitespace tokens are omitted). For tests and debugging.
     pub fn debug_tree(&self) -> String {
         let mut out = String::new();
         self.write_tree(&mut out, 0);

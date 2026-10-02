@@ -1,29 +1,30 @@
-//! PostgreSQL の字句解析器。
+//! Lexer for PostgreSQL.
 //!
-//! 空白やコメントも含め、入力のすべてのバイトをいずれかのトークンに割り当てる。
-//! そのためトークンの `text` を順につなげると入力と一致する（ロスレス）。
-//! 字句規則は PostgreSQL の `src/backend/parser/scan.l` に合わせている。
-//! 不正な入力でもエラーにせず、閉じていない文字列などは `terminated: false` として最後まで読む。
+//! Every byte of the input, including whitespace and comments, is assigned to some token,
+//! so concatenating the tokens' `text` in order reproduces the input (lossless).
+//! The lexical rules follow PostgreSQL's `src/backend/parser/scan.l`.
+//! Invalid input is never an error: an unterminated string and the like is read to the end
+//! of the input with `terminated: false`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
-    /// 空白・改行
+    /// Whitespace and line breaks
     Whitespace,
-    /// `-- ...`（末尾の改行は含まない）
+    /// `-- ...` (the trailing line break is not included)
     LineComment,
-    /// `/* ... */`（入れ子にできる）
+    /// `/* ... */` (may be nested)
     BlockComment {
         terminated: bool,
     },
-    /// 引用符なしの識別子（キーワードを含む）
+    /// An unquoted identifier (including keywords)
     Ident,
-    /// キーワードとして読んだ識別子。字句解析器は出さず、パーサーが `Ident` から付け替える
+    /// An identifier read as a keyword. The lexer never produces it; the parser relabels an `Ident`
     Keyword,
     /// `"..."` / `U&"..."`
     QuotedIdent {
         terminated: bool,
     },
-    /// `'...'` と接頭辞付きの文字列（`E'...'` など）
+    /// `'...'` and prefixed strings (`E'...'` etc.)
     String {
         prefix: StringPrefix,
         terminated: bool,
@@ -32,12 +33,13 @@ pub enum TokenKind {
     DollarString {
         terminated: bool,
     },
-    /// 中身を解析したドル引用符の `$tag$`。字句解析器は出さず、パーサーが `DollarString` を分けて作る
+    /// The `$tag$` of a dollar-quoted string whose contents were parsed. The lexer never produces
+    /// it; the parser creates it by splitting a `DollarString`
     DollarDelimiter,
     Number,
-    /// `$1` などの位置パラメーター
+    /// A positional parameter such as `$1`
     Param,
-    /// `+` `<=` `@>` `->>` などの演算子
+    /// An operator such as `+` `<=` `@>` `->>`
     Operator,
     LParen,
     RParen,
@@ -46,24 +48,26 @@ pub enum TokenKind {
     Comma,
     Semicolon,
     Dot,
-    /// `..`（PL/pgSQL の `FOR i IN 1..10`）
+    /// `..` (PL/pgSQL `FOR i IN 1..10`)
     DotDot,
     Colon,
-    /// `::`（型キャスト）
+    /// `::` (type cast)
     DoubleColon,
-    /// `:=`（PL/pgSQL の代入）
+    /// `:=` (PL/pgSQL assignment)
     ColonEquals,
-    /// どの規則にも当てはまらない 1 文字
+    /// A single character that matches no rule
     Unknown,
-    /// psql の変数 `:name` / `:'name'` / `:"name"`。psql が置き換えるので 1 つの名前として扱う。
-    /// 関数本体の中（psql は置き換えない）と、`a[1:n]` のように名前や数字の直後の `:` では読まない
+    /// A psql variable `:name` / `:'name'` / `:"name"`. psql substitutes it, so it is treated as a
+    /// single name. Not recognized inside function bodies (psql does not substitute there) or when
+    /// the `:` directly follows a name or number, as in `a[1:n]`
     PsqlVariable,
-    /// `COPY ... FROM STDIN;` の直後から `\.` だけの行までのデータ（`;` と同じ行の残りを含む）
+    /// The data from right after `COPY ... FROM STDIN;` up to the line containing only `\.`
+    /// (including the rest of the line the `;` is on)
     CopyData,
 }
 
 impl TokenKind {
-    /// 空白・コメント。構文上の意味を持たない
+    /// Whitespace and comments. Has no syntactic meaning
     pub fn is_trivia(self) -> bool {
         matches!(
             self,
@@ -76,7 +80,7 @@ impl TokenKind {
 pub enum StringPrefix {
     /// `'...'`
     None,
-    /// `E'...'`（バックスラッシュでエスケープする）
+    /// `E'...'` (backslash escapes)
     Escape,
     /// `B'...'`
     Bit,
@@ -92,15 +96,16 @@ pub enum StringPrefix {
 pub struct Token<'a> {
     pub kind: TokenKind,
     pub text: &'a str,
-    /// 入力先頭からのバイト位置
+    /// Byte offset from the start of the input
     pub offset: usize,
 }
 
-/// UTF-8 の BOM。入力の先頭にあれば空白として扱う
+/// The UTF-8 BOM. Treated as whitespace when it appears at the start of the input
 pub const BOM: &str = "\u{FEFF}";
 
-/// `src` の一部を字句解析する。トークンの位置は `base` を足した、元の入力での位置になる。
-/// 関数本体などの一部なので、COPY のデータと psql の変数は読まない。
+/// Tokenizes a part of the input. Token offsets have `base` added, so they are positions in the
+/// original input. Since this is a fragment such as a function body, COPY data and psql variables
+/// are not recognized.
 pub fn tokenize_with_offset(src: &str, base: usize) -> Vec<Token<'_>> {
     let mut tokens = scan_all(src, false);
     for token in &mut tokens {
@@ -113,7 +118,8 @@ pub fn tokenize(src: &str) -> Vec<Token<'_>> {
     scan_all(src, true)
 }
 
-/// `top_level` は入力全体（psql に渡すスクリプト）か。COPY のデータと psql の変数はそこでだけ読む
+/// `top_level` says whether `src` is the whole input (a script given to psql). COPY data and psql
+/// variables are recognized only there
 fn scan_all(src: &str, top_level: bool) -> Vec<Token<'_>> {
     let mut lexer = Lexer {
         src,
@@ -122,7 +128,7 @@ fn scan_all(src: &str, top_level: bool) -> Vec<Token<'_>> {
         psql_variables: top_level,
     };
     let mut tokens = Vec::new();
-    // 先頭の BOM は空白として切り出す（識別子の文字にすると `select` にくっついてしまう）
+    // Split off a leading BOM as whitespace (as an identifier character it would stick to `select`)
     if let Some(rest) = src.strip_prefix(BOM) {
         lexer.pos = src.len() - rest.len();
         tokens.push(Token {
@@ -134,8 +140,8 @@ fn scan_all(src: &str, top_level: bool) -> Vec<Token<'_>> {
     while lexer.pos < src.len() {
         let start = lexer.pos;
         let kind = lexer.scan();
-        // `COPY ... FROM STDIN;` の直後からデータの終わりまでを 1 つのトークンにする。
-        // 最後の改行のほかに何も残っていなければデータはない
+        // Everything from right after `COPY ... FROM STDIN;` to the end of the data becomes one
+        // token. If nothing but the final line break remains, there is no data
         let copy_follows = top_level
             && kind == TokenKind::Semicolon
             && ends_copy_from_stdin(&tokens)
@@ -158,7 +164,8 @@ fn scan_all(src: &str, top_level: bool) -> Vec<Token<'_>> {
     tokens
 }
 
-/// `tokens` の最後の文が `COPY ... FROM STDIN` か。括弧の中（`COPY (SELECT ... FROM stdin) TO ...`）は見ない
+/// Whether the last statement in `tokens` is `COPY ... FROM STDIN`. Anything inside parentheses
+/// (`COPY (SELECT ... FROM stdin) TO ...`) is ignored
 fn ends_copy_from_stdin(tokens: &[Token]) -> bool {
     let mut depth = 0usize;
     let mut words = Vec::new();
@@ -178,14 +185,15 @@ fn ends_copy_from_stdin(tokens: &[Token]) -> bool {
             .any(|w| w[0].eq_ignore_ascii_case("stdin") && w[1].eq_ignore_ascii_case("from"))
 }
 
-/// 最後の改行（`\n` か `\r\n`）を 1 つ除く。整形結果の最後にはいつも改行が付くので
+/// Removes one trailing line break (`\n` or `\r\n`), since the formatted output always ends with
+/// a line break
 fn strip_last_newline(text: &str) -> &str {
     let text = text.strip_suffix('\n').unwrap_or(text);
     text.strip_suffix('\r').unwrap_or(text)
 }
 
-// 区切りはすべて ASCII なので、バイト単位で進めても UTF-8 の文字の途中で切れることはない。
-// 非 ASCII のバイトは識別子の文字として扱われる（scan.l の `\200-\377` と同じ）。
+// All delimiters are ASCII, so advancing byte by byte never splits a UTF-8 character.
+// Non-ASCII bytes are treated as identifier characters (like `\200-\377` in scan.l).
 struct Lexer<'a> {
     src: &'a str,
     bytes: &'a [u8],
@@ -208,10 +216,11 @@ impl Lexer<'_> {
         }
     }
 
-    /// COPY のデータを `\.` だけの行（`\r` が付いてもよい）まで読む。なければ入力の最後の改行の前まで
-    /// （行末のタブは空の列、空行は空の行なので、空白も削らない）。
-    /// psql と同じく、データは `;` の次の行から始まる。`;` と同じ行の残りもデータに含めて、
-    /// 整形でデータの始まる位置が変わらないようにする
+    /// Reads COPY data up to the line containing only `\.` (a trailing `\r` is allowed). Without
+    /// one, reads up to the final line break of the input (whitespace is kept too: a trailing tab
+    /// is an empty column and an empty line is an empty row).
+    /// As in psql, the data starts on the line after the `;`. The rest of the line the `;` is on
+    /// is included in the data so that formatting does not move where the data starts
     fn copy_data(&mut self) {
         let start = self.pos;
         let mut line_start = start;
@@ -225,7 +234,7 @@ impl Lexer<'_> {
         self.pos = start + strip_last_newline(&self.src[start..]).len();
     }
 
-    /// `:` から psql の変数が始まるか
+    /// Whether a psql variable starts at the current `:`
     fn at_psql_variable(&self) -> bool {
         let prev = self.pos.checked_sub(1).map(|i| self.bytes[i]);
         let after_value = prev
@@ -233,7 +242,8 @@ impl Lexer<'_> {
         self.psql_variables && !after_value && self.psql_variable_follows()
     }
 
-    /// 現在の `:` の直後が、変数の名前か、後ろで閉じている引用符か
+    /// Whether the current `:` is directly followed by a variable name or by a quote that is closed
+    /// later
     fn psql_variable_follows(&self) -> bool {
         match self.peek(1) {
             Some(b'\'' | b'"') => {
@@ -246,18 +256,20 @@ impl Lexer<'_> {
     }
 
     /// `:name` / `:'name'` / `:"name"`
-    /// `:a:b` のように続けて書いた変数は、psql がそれぞれを置き換えてつなぐので 1 つのトークンにする
+    /// Adjacent variables such as `:a:b` become one token, since psql substitutes each and joins
+    /// the results
     fn psql_variable(&mut self) -> TokenKind {
         loop {
             self.pos += 1;
             match self.bytes[self.pos] {
                 quote @ (b'\'' | b'"') => {
-                    // 引用符を重ねた `:'it''s'` は 1 つの名前
+                    // A doubled quote, as in `:'it''s'`, is one name
                     self.pos += 1;
                     loop {
                         self.eat_while(|b| b != quote);
                         self.pos += 1;
-                        // 次も同じ引用符でも、その先に閉じる引用符がなければ重ねた引用符ではない（`:'a''` で終わる入力）
+                        // Even if the next byte is the same quote, it is not a doubled quote
+                        // unless a closing quote follows later (input ending in `:'a''`)
                         if self.peek(0) != Some(quote)
                             || !self.bytes[self.pos + 1..].contains(&quote)
                         {
@@ -274,7 +286,7 @@ impl Lexer<'_> {
         }
     }
 
-    /// 次のトークンを 1 つ読み、その種類を返す。`pos` は必ず進む。
+    /// Reads one token and returns its kind. `pos` always advances.
     fn scan(&mut self) -> TokenKind {
         let c = self.bytes[self.pos];
         match c {
@@ -340,7 +352,7 @@ impl Lexer<'_> {
         TokenKind::BlockComment { terminated: false }
     }
 
-    /// `pos` は開きの `'` を指していること。
+    /// `pos` must point at the opening `'`.
     fn string(&mut self, prefix: StringPrefix) -> TokenKind {
         self.pos += 1;
         let terminated = loop {
@@ -360,7 +372,7 @@ impl Lexer<'_> {
         TokenKind::String { prefix, terminated }
     }
 
-    /// `pos` は開きの `"` を指していること。
+    /// `pos` must point at the opening `"`.
     fn quoted_ident(&mut self) -> TokenKind {
         self.pos += 1;
         let terminated = loop {
@@ -377,7 +389,7 @@ impl Lexer<'_> {
         TokenKind::QuotedIdent { terminated }
     }
 
-    /// `$1`、`$$...$$`、`$tag$...$tag$` のいずれか。どれでもなければ `$` 1 文字を `Unknown` にする。
+    /// One of `$1`, `$$...$$` or `$tag$...$tag$`. Otherwise the single `$` becomes `Unknown`.
     fn dollar(&mut self) -> TokenKind {
         if self.peek_is(1, is_dec_digit) {
             self.pos += 1;
@@ -402,7 +414,7 @@ impl Lexer<'_> {
         }
     }
 
-    /// `pos` から始まる `$tag$` の長さ。タグは省略でき、数字から始められない。
+    /// Length of the `$tag$` starting at `pos`. The tag may be empty and cannot start with a digit.
     fn dollar_delimiter_len(&self) -> Option<usize> {
         let mut i = 1;
         if self.peek_is(i, is_ident_start) {
@@ -438,7 +450,7 @@ impl Lexer<'_> {
             self.eat_digits(is_dec_digit, false);
         } else {
             self.eat_digits(is_dec_digit, false);
-            // `1..10` の `..` は範囲なので、小数点として読まない
+            // The `..` in `1..10` is a range, not a decimal point
             if self.peek(0) == Some(b'.') && self.peek(1) != Some(b'.') {
                 self.pos += 1;
                 self.eat_digits(is_dec_digit, false);
@@ -458,8 +470,9 @@ impl Lexer<'_> {
         TokenKind::Number
     }
 
-    /// `1_000` のように、数字の間に `_` を 1 つずつ挟める数字列を読む。
-    /// `0x_FF` のように先頭に `_` を置けるのは基数付きのときだけ。1 桁以上読めたら true。
+    /// Reads a digit sequence in which a single `_` may separate digits, as in `1_000`.
+    /// A leading `_`, as in `0x_FF`, is allowed only with a radix prefix. Returns true if at
+    /// least one digit was read.
     fn eat_digits(&mut self, is_digit: fn(u8) -> bool, allow_leading_underscore: bool) -> bool {
         let start = self.pos;
         loop {
@@ -474,8 +487,8 @@ impl Lexer<'_> {
         self.pos > start
     }
 
-    /// 演算子を読む。scan.l と同じく、`--` / `/*` の手前で切り、
-    /// `~!@#^&|`?%` を含まない演算子の末尾の `+` / `-` は切り離す（`*-1` を `*` と `-1` にするため）。
+    /// Reads an operator. As in scan.l, it stops before `--` / `/*`, and a trailing `+` / `-` is
+    /// split off an operator that contains none of `~!@#^&|`?%` (so `*-1` becomes `*` and `-1`).
     fn operator(&mut self) -> TokenKind {
         let start = self.pos;
         let mut end = start;
@@ -553,7 +566,7 @@ fn is_op_char(b: u8) -> bool {
 mod tests {
     use super::*;
 
-    /// 空白を除いた (種類, テキスト) の列
+    /// The (kind, text) sequence with whitespace removed
     fn lex(src: &str) -> Vec<(TokenKind, &str)> {
         let tokens = tokenize(src);
         assert_eq!(tokens.iter().map(|t| t.text).collect::<String>(), src);
@@ -608,9 +621,10 @@ mod tests {
                 (TokenKind::Number, "1"),
             ]
         );
-        // 閉じていない引用符は変数にしない
+        // An unterminated quote is not a variable
         assert_eq!(lex(":'a")[0], (TokenKind::Colon, ":"));
-        // 重ねた引用符の途中で入力が終わっても、閉じたところまでを変数にする
+        // If the input ends in the middle of a doubled quote, the variable ends at the closing
+        // quote
         assert_eq!(
             lex(":'a''"),
             [
@@ -632,14 +646,15 @@ mod tests {
             ]
         );
         assert_eq!(lex(":'it''s'"), [(TokenKind::PsqlVariable, ":'it''s'")]);
-        // 関数本体の一部では読まない
+        // Not recognized inside a function body
         let body = tokenize_with_offset("x := :a", 0);
         assert!(body.iter().all(|t| t.kind != TokenKind::PsqlVariable));
     }
 
     #[test]
     fn copy_data() {
-        // `;` と同じ行の残り（ここではコメント）もデータ。終わりの印は次の行から探す
+        // The rest of the line the `;` is on (a comment here) is data too. The end marker is looked
+        // for from the next line
         assert_eq!(
             lex("COPY t FROM stdin; -- c \\.\n1\t'\n\\.\r\nSELECT"),
             [
@@ -652,12 +667,12 @@ mod tests {
                 (TokenKind::Ident, "SELECT"),
             ]
         );
-        // psql は `;` と同じ行の `\.` をデータの終わりにしない
+        // psql does not treat a `\.` on the same line as the `;` as the end of the data
         assert_eq!(
             texts("copy t from stdin;\\.\n1\n\\.\nselect"),
             ["copy", "t", "from", "stdin", ";", "\\.\n1\n\\.", "select"]
         );
-        // 終わりの印がなければ最後の改行の前まで。改行しかなければデータはない
+        // Without an end marker, data runs to the final line break. Only a line break means no data
         assert_eq!(
             texts("copy t from stdin;\n\n1\t\n\n"),
             ["copy", "t", "from", "stdin", ";", "\n\n1\t\n"]
@@ -666,12 +681,12 @@ mod tests {
             texts("copy t from stdin;\r\n"),
             ["copy", "t", "from", "stdin", ";"]
         );
-        // FROM STDIN でなければデータはない
+        // No data unless it is FROM STDIN
         assert_eq!(
             texts("copy t to stdout;\n'a'"),
             ["copy", "t", "to", "stdout", ";", "'a'"]
         );
-        // 関数本体の一部ではデータを読まない
+        // Data is not recognized inside a function body
         let body = tokenize_with_offset("copy t from stdin;\n'a'", 0);
         assert!(body.iter().all(|t| t.kind != TokenKind::CopyData));
     }
@@ -694,7 +709,7 @@ mod tests {
             ]
         );
         assert_eq!(tokenize("\u{FEFF}").len(), 1);
-        // 先頭以外では識別子の文字のまま
+        // Anywhere but the start it stays an identifier character
         assert_eq!(texts("a \u{FEFF}b"), ["a", "\u{FEFF}b"]);
     }
 
@@ -781,7 +796,7 @@ mod tests {
             lex("$ 1"),
             [(TokenKind::Unknown, "$"), (TokenKind::Number, "1")]
         );
-        // タグは数字から始められない
+        // A tag cannot start with a digit
         assert_eq!(lex("$1a$")[0], (TokenKind::Param, "$1"));
     }
 
@@ -820,7 +835,7 @@ mod tests {
         assert_eq!(texts("0o8"), ["0", "o8"]);
         assert_eq!(texts("0xg"), ["0", "xg"]);
         assert_eq!(texts("1.x"), ["1.", "x"]);
-        // 10 進数では数字の前に `_` を置けない
+        // In decimal, `_` cannot precede the digits
         assert_eq!(texts("1._5"), ["1.", "_5"]);
         assert_eq!(texts("1e_5"), ["1", "e_5"]);
     }
@@ -869,7 +884,7 @@ mod tests {
         assert_eq!(texts("a<>-1"), ["a", "<>", "-", "1"]);
         assert_eq!(texts("+-"), ["+", "-"]);
         assert_eq!(texts("<=+-"), ["<=", "+", "-"]);
-        // `~!@#^&|`?%` を含む演算子は末尾の +/- ごと 1 つ
+        // An operator containing `~!@#^&|`?%` keeps its trailing +/-
         assert_eq!(texts("a@-1"), ["a", "@-", "1"]);
         assert_eq!(texts("a%-1"), ["a", "%-", "1"]);
     }
@@ -885,7 +900,7 @@ mod tests {
             ]
         );
         assert_eq!(texts("*/* c */"), ["*", "/* c */"]);
-        // 末尾の +/- を切り離さない演算子でも、`--` の手前で切る
+        // Even an operator that keeps its trailing +/- stops before `--`
         assert_eq!(texts("a@--c"), ["a", "@", "--c"]);
     }
 

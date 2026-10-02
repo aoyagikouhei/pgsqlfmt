@@ -1,12 +1,13 @@
-//! INSERT / UPDATE / DELETE 文と、文の入口（WITH の後ろで種類を振り分ける）。
+//! INSERT / UPDATE / DELETE statements, and the statement entry point (which dispatches on the
+//! kind of statement that follows WITH).
 
 use super::Parser;
 use crate::lexer::TokenKind;
 use crate::syntax::NodeKind;
 
 impl Parser<'_> {
-    /// SELECT / INSERT / UPDATE / DELETE（WITH 付きを含む）を 1 つ読む。
-    /// どれでもなければ何も取り込まずに false を返す。
+    /// Reads one SELECT / INSERT / UPDATE / DELETE (with or without WITH).
+    /// Returns false, consuming nothing, if it is none of these.
     pub(super) fn statement_body(&mut self) -> bool {
         if !self.at_query_start(0) && !self.at_any_kw(&["insert", "update", "delete", "merge"]) {
             return false;
@@ -43,7 +44,7 @@ impl Parser<'_> {
         if self.at_name() {
             let cp = self.checkpoint();
             self.name_path();
-            // VALUES なども予約語ではないので、AS なしの別名は受け付けない
+            // VALUES and the like are not reserved words, so an alias without AS is not accepted
             if self.at_kw("as") {
                 self.opt_alias(false);
             }
@@ -159,7 +160,7 @@ impl Parser<'_> {
             self.expr();
             self.finish_node();
         }
-        // WHEN 句の中の SET や条件は、次の WHEN の手前で終わる
+        // SET and conditions inside a WHEN clause end before the next WHEN
         self.with_stops(&["when"], |p| {
             while p.at_kw("when") {
                 p.merge_when_clause();
@@ -174,7 +175,8 @@ impl Parser<'_> {
     }
 
     /// `WHEN [NOT] MATCHED [BY SOURCE | BY TARGET] [AND cond] THEN
-    ///  {UPDATE SET ... | DELETE | DO NOTHING | INSERT [(cols)] [OVERRIDING ...] {VALUES (...) | DEFAULT VALUES}}`
+    ///  {UPDATE SET ... | DELETE | DO NOTHING
+    ///   | INSERT [(cols)] [OVERRIDING ...] {VALUES (...) | DEFAULT VALUES}}`
     fn merge_when_clause(&mut self) {
         self.start_node(NodeKind::MergeWhenClause);
         self.bump_kw();
@@ -220,7 +222,8 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// UPDATE / DELETE の対象の表。`not_bare` は AS なしの別名にしないキーワード。
+    /// The target table of UPDATE / DELETE. `not_bare` lists keywords that are not taken as an
+    /// alias without AS.
     fn dml_target(&mut self, not_bare: &[&str]) {
         if !self.at_name() {
             return;

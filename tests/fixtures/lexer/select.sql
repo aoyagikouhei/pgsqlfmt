@@ -1,7 +1,7 @@
--- 顧客ごとの注文数
+-- order count per customer
 SELECT c.id, c."Name", count(o.*)::bigint AS cnt
 FROM customers AS c
-LEFT JOIN orders o ON o.customer_id = c.id /* 外部結合 */
+LEFT JOIN orders o ON o.customer_id = c.id /* outer join */
 WHERE c.tags @> ARRAY['vip'] AND c.created_at >= now() - interval '30 days'
   AND c.score*-1 < 0.5e2
 GROUP BY c.id, c."Name"

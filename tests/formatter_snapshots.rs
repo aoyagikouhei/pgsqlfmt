@@ -1,5 +1,5 @@
-//! `tests/fixtures/*/*.sql` を整形し、結果をスナップショットと比較する。
-//! 新しいケースは `.sql` を追加して `make snapshot-review` で承認する。
+//! Formats `tests/fixtures/*/*.sql` and compares the output with the snapshots.
+//! To add a case, add a `.sql` file and approve it with `make snapshot-review`.
 
 use pgsqlfmt::format;
 

@@ -1,5 +1,5 @@
-//! `tests/fixtures/lexer/*.sql` を字句解析し、トークン列をスナップショットと比較する。
-//! 新しいケースは `.sql` を追加して `cargo insta test --review` で承認する。
+//! Tokenizes `tests/fixtures/lexer/*.sql` and compares the token streams with the snapshots.
+//! To add a case, add a `.sql` file and approve it with `cargo insta test --review`.
 
 use pgsqlfmt::lexer::{TokenKind, tokenize};
 
@@ -11,7 +11,7 @@ fn lexer_snapshots() {
         assert_eq!(
             tokens.iter().map(|t| t.text).collect::<String>(),
             src,
-            "トークンをつなげると入力に戻ること"
+            "concatenating the tokens must reproduce the input"
         );
         let dump = tokens
             .iter()

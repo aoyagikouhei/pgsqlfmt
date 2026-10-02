@@ -1,49 +1,49 @@
-# 変更履歴
+# Changelog
 
-このファイルには、利用者から見える変更を版ごとに書きます。
-形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、版の付け方は [Semantic Versioning](https://semver.org/lang/ja/) に従います。
+This file records user-visible changes for each version.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
 ## [0.2.0] - 2026-10-02
 
-### 追加
+### Added
 
-- PL/pgSQL の `SELECT INTO target expr, ... FROM ...`（INTO を項目より前に書く形）を整形する。`SELECT INTO STRICT r *` のように SELECT の行に続ける
-- `timestamp with time zone '...'` / `double precision '1'` / `character varying 'x'` のような複数語の型付きリテラルを式として読む
-- `GROUP BY` の `ROLLUP (...)` / `CUBE (...)` を `GROUPING SETS` と同じくキーワードとして大文字にする
-- `IN :list` の psql の変数を IN の式として同じ行に書く
+- Format PL/pgSQL `SELECT INTO target expr, ... FROM ...` (the form with INTO before the items). Like `SELECT INTO STRICT r *`, it continues on the SELECT line
+- Read multi-word typed literals such as `timestamp with time zone '...'` / `double precision '1'` / `character varying 'x'` as expressions
+- Write `ROLLUP (...)` / `CUBE (...)` in `GROUP BY` in upper case as keywords, like `GROUPING SETS`
+- Write a psql variable in `IN :list` on the same line as the IN expression
 
-### 変更
+### Changed
 
-- 改行コードを入力の最初の改行に合わせる。CRLF のファイルは CRLF のまま整形し、`--check` も通る（これまでは常に LF に変えていた）
-- 入力の先頭の BOM を残す（これまでは BOM が `select` にくっついて、文全体が整形されなかった）
-- 別名の列の並びを名前に続けて書く（`AS g (n, i)` → `AS g(n, i)`）
-- `--write` は同じディレクトリの一時ファイルに書いてから置き換え、元のファイルの権限を保つ（途中で止まっても元のファイルが欠けない）
-- 単項の `+` / `-` を `COLLATE` / `AT TIME ZONE` より強く結び付ける（PostgreSQL の文法に合わせた。整形結果は変わらない）
+- Line endings follow the first line ending in the input. CRLF files are formatted as CRLF and pass `--check` (previously they were always converted to LF)
+- Keep a leading BOM in the input (previously the BOM stuck to `select` and the whole statement was left unformatted)
+- Write an alias's column list directly after the name (`AS g (n, i)` → `AS g(n, i)`)
+- `--write` writes to a temporary file in the same directory and then replaces the original, preserving the original file's permissions (the original file is not lost if interrupted)
+- Bind unary `+` / `-` more tightly than `COLLATE` / `AT TIME ZONE` (matches PostgreSQL's grammar; the formatted output does not change)
 
-### 修正
+### Fixed
 
-- `:'a''` のように重ねた引用符の途中で終わる psql の変数で、字句解析器が panic していた
-- 閉じていない文字列・コメントで入力が終わるとき、その中身の末尾の空白を削り、改行を足していた
+- The lexer panicked on a psql variable that ended in the middle of a doubled quote, such as `:'a''`
+- When the input ended inside an unterminated string or comment, trailing whitespace inside it was removed and a newline was appended
 
 ## [0.1.0] - 2026-10-01
 
-最初のリリース。
+Initial release.
 
-### 追加
+### Added
 
-- 手書きの字句解析器・構文解析器による、PostgreSQL の SQL と PL/pgSQL のフォーマッター。不正な入力や対応していない構文でも失敗せず、解釈できない部分は入力のまま残す
-- SELECT（WITH・集合演算・ウィンドウ関数・LATERAL・TABLESAMPLE など）、INSERT / UPDATE / DELETE / MERGE、VALUES、TABLE の整形
-- DDL の整形: CREATE TABLE / INDEX / VIEW / MATERIALIZED VIEW / TRIGGER / SEQUENCE / TYPE / SCHEMA / EXTENSION、ALTER TABLE とそのほかの ALTER、DROP、TRUNCATE、COMMENT ON、GRANT / REVOKE
-- ユーティリティ文の整形: COPY（`FROM STDIN` のデータは入力のまま残す）、SET / RESET / SHOW、EXPLAIN、トランザクション制御
-- CREATE FUNCTION / PROCEDURE、DO、`BEGIN ATOMIC` の整形。`LANGUAGE plpgsql` の本体は PL/pgSQL として、`LANGUAGE sql` の本体は SQL として中身も整形する
-- 句ごとの改行、行頭カンマ、キーワードの大文字化、行幅による折り返し（全角文字は 2 桁）
-- オプション: `--max-width`、`--indent`、`--keyword-case upper|lower|preserve`、`--comma leading|trailing`
-- CLI: 標準入力の整形、ファイル・ディレクトリの `--write` / `--check`
-- psql の変数（`:name` / `:'name'` / `:"name"`）を 1 つの名前として扱う
-- 配布: GitHub Releases の Linux（x86_64 / aarch64、musl 静的リンク）バイナリ、Docker イメージ、pre-commit フック
-- MIT ライセンス
+- A formatter for PostgreSQL SQL and PL/pgSQL with a hand-written lexer and parser. It never fails on invalid input or unsupported syntax, and keeps unparseable parts as in the input
+- Formatting of SELECT (WITH, set operations, window functions, LATERAL, TABLESAMPLE, etc.), INSERT / UPDATE / DELETE / MERGE, VALUES, and TABLE
+- Formatting of DDL: CREATE TABLE / INDEX / VIEW / MATERIALIZED VIEW / TRIGGER / SEQUENCE / TYPE / SCHEMA / EXTENSION, ALTER TABLE and other ALTER statements, DROP, TRUNCATE, COMMENT ON, GRANT / REVOKE
+- Formatting of utility statements: COPY (the `FROM STDIN` data is kept as in the input), SET / RESET / SHOW, EXPLAIN, transaction control
+- Formatting of CREATE FUNCTION / PROCEDURE, DO, and `BEGIN ATOMIC`. Bodies are formatted too: as PL/pgSQL for `LANGUAGE plpgsql` and as SQL for `LANGUAGE sql`
+- One clause per line, leading commas, upper-case keywords, wrapping by line width (full-width characters count as two columns)
+- Options: `--max-width`, `--indent`, `--keyword-case upper|lower|preserve`, `--comma leading|trailing`
+- CLI: formatting of stdin, `--write` / `--check` for files and directories
+- psql variables (`:name` / `:'name'` / `:"name"`) are treated as a single name
+- Distribution: Linux binaries (x86_64 / aarch64, statically linked with musl) on GitHub Releases, a Docker image, and pre-commit hooks
+- MIT license
 
 [Unreleased]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.1.0...v0.2.0

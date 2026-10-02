@@ -1,6 +1,6 @@
--- 実機検証用のスキーマと初期データ。
--- tests/postgres_equivalence.rs がトランザクションの中で流し、最後に ROLLBACK する。
--- 既存のフィクスチャ（tests/fixtures/*/*.sql）が参照する表と列をそろえている。
+-- Schema and seed data for verification against a real PostgreSQL.
+-- tests/postgres_equivalence.rs runs it inside a transaction and ends with ROLLBACK.
+-- It provides the tables and columns referenced by the fixtures (tests/fixtures/*/*.sql).
 
 CREATE TABLE customers (
     id bigint PRIMARY KEY,

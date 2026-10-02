@@ -1,10 +1,10 @@
 ---
 source: tests/parser_snapshots.rs
-expression: tree.debug_tree()
+expression: debug_tree(path)
 input_file: tests/fixtures/parser/select_report.sql
 ---
 Root
-  LineComment "-- 月別・顧客別の売上レポート"
+  LineComment "-- monthly sales report per customer"
   SelectStmt
     WithClause
       Keyword "WITH"
@@ -175,7 +175,7 @@ Root
             Keyword "AS"
             Ident "rnk"
         Comma ","
-        BlockComment "/* 月内順位 */"
+        BlockComment "/* rank within the month */"
         TargetItem
           CaseExpr
             Keyword "CASE"

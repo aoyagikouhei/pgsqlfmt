@@ -1,8 +1,8 @@
-# 配布用のイメージ。リリースビルドしたバイナリだけを含む。
+# Distribution image. Contains only the release-built binary.
 #   docker build -t pgsqlfmt .
 #   docker run --rm -v "$PWD:/src" pgsqlfmt --check .
-# pre-commit の `language: docker` のフック（.pre-commit-hooks.yaml）もこのイメージで動く。
-# 開発用の環境は docker/dev/Dockerfile と compose.yaml を使う。
+# The pre-commit `language: docker` hooks (.pre-commit-hooks.yaml) also run on this image.
+# The development environment uses docker/dev/Dockerfile and compose.yaml.
 FROM rust:1-trixie AS build
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./

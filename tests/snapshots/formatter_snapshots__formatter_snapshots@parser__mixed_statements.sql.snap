@@ -3,7 +3,7 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/parser/mixed_statements.sql
 ---
--- 対応していない文はそのまま残る
+-- unsupported statements are kept verbatim
 CREATE TABLE users (
     id bigint PRIMARY KEY
   , name text NOT NULL
@@ -21,4 +21,4 @@ SELECT
   ,
   , b
 FROM t
-WHERE; -- 壊れた文
+WHERE; -- broken statement

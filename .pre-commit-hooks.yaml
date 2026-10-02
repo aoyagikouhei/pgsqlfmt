@@ -1,13 +1,13 @@
-# pre-commit のフック。Docker があれば、Rust を入れなくても使える。
+# pre-commit hooks. With Docker, they can be used without installing Rust.
 - id: pgsqlfmt
   name: pgsqlfmt
-  description: SQL / PL/pgSQL のファイルを整形する
+  description: Format SQL / PL/pgSQL files
   entry: pgsqlfmt --write
   language: docker
   types: [sql]
 - id: pgsqlfmt-check
   name: pgsqlfmt (check)
-  description: SQL / PL/pgSQL のファイルが整形済みか確かめる（書き換えない）
+  description: Check that SQL / PL/pgSQL files are formatted (does not rewrite)
   entry: pgsqlfmt --check
   language: docker
   types: [sql]

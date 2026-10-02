@@ -1,4 +1,4 @@
--- 月別・顧客別の売上レポート
+-- monthly sales report per customer
 WITH monthly AS (
   SELECT c.id AS customer_id,
          date_trunc('month', o.ordered_at) AS month,
@@ -11,7 +11,7 @@ WITH monthly AS (
 SELECT m.customer_id,
        m.month,
        m.total,
-       rank() OVER (PARTITION BY m.month ORDER BY m.total DESC NULLS LAST) AS rnk, /* 月内順位 */
+       rank() OVER (PARTITION BY m.month ORDER BY m.total DESC NULLS LAST) AS rnk, /* rank within the month */
        CASE WHEN m.total > 10000 THEN 'gold' WHEN m.total > 1000 THEN 'silver' ELSE 'bronze' END AS tier
 FROM monthly AS m
 WHERE m.customer_id IN (SELECT id FROM customers WHERE active)

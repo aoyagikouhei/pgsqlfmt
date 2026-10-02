@@ -1,5 +1,5 @@
-//! 壊れた入力でもパーサーが止まらず、木のテキストが入力と一致し続けることを確かめる。
-//! すべてのフィクスチャについて、途中で切った入力と、トークンを 1 つ抜いた入力を試す。
+//! Checks that the parser neither panics nor hangs on broken input and that the tree's text still
+//! matches the input. For every fixture, tries each truncated input and each input with one token removed.
 
 use std::path::Path;
 

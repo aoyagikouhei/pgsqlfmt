@@ -5,29 +5,29 @@ use std::process::ExitCode;
 use pgsqlfmt::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
 
 const USAGE: &str = "\
-使い方: pgsqlfmt [オプション] [ファイルまたはディレクトリ ...]
+Usage: pgsqlfmt [options] [file or directory ...]
 
-SQL を整形する。ファイルを指定しなければ標準入力を整形して標準出力に書き出す。
-ディレクトリを指定すると、その下の *.sql を探す（. で始まるものは除く）。
-`-` は標準入力を表す。
+Formats SQL. Without files, reads standard input and writes the result to standard output.
+A directory is searched for *.sql files under it (names starting with . are skipped).
+`-` means standard input.
 
-オプション:
-      --write        ファイルを整形結果で上書きする
-      --check        整形されていないファイルがあれば一覧を出して終了コード 1 で終わる（書き換えない）
-  -w, --max-width N  行幅（既定: 80）
-      --indent N     字下げの幅。2 から 8（既定: 4）
+Options:
+      --write        Overwrite files with the formatted result
+      --check        List files that are not formatted and exit with code 1 (does not rewrite)
+  -w, --max-width N  Line width (default: 80)
+      --indent N     Indent width, 2 to 8 (default: 4)
       --keyword-case upper|lower|preserve
-                     キーワードを大文字・小文字・入力のままにする（既定: upper）
+                     Write keywords in upper case, lower case, or as in the input (default: upper)
       --comma leading|trailing
-                     項目を 1 行ずつ並べるときのカンマを行頭・行末に置く（既定: leading）
-  -h, --help         この説明を表示する
+                     Put commas at the start or end of lines when listing items one per line (default: leading)
+  -h, --help         Show this help
 
-終了コード: 0 = 成功、1 = --check で整形されていないファイルがあった、2 = 引数や読み書きのエラー
+Exit codes: 0 = success, 1 = --check found unformatted files, 2 = argument or I/O error
 ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
-    /// 整形結果を標準出力に書く
+    /// Write the formatted result to standard output
     Print,
     Write,
     Check,
@@ -48,7 +48,7 @@ enum Input {
 impl Input {
     fn name(&self) -> String {
         match self {
-            Input::Stdin => "<標準入力>".to_string(),
+            Input::Stdin => "<stdin>".to_string(),
             Input::File(path) => path.display().to_string(),
         }
     }
@@ -75,43 +75,39 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-w" | "--max-width" => {
-                let value = args.next().ok_or(format!("{arg} に値がありません"))?;
+                let value = args.next().ok_or(format!("{arg} requires a value"))?;
                 parsed.options.max_width = value
                     .parse()
-                    .map_err(|_| format!("{arg} の値が数値ではありません: {value}"))?;
+                    .map_err(|_| format!("{arg} must be a number: {value}"))?;
             }
             "--indent" => {
-                let value = args.next().ok_or(format!("{arg} に値がありません"))?;
+                let value = args.next().ok_or(format!("{arg} requires a value"))?;
                 parsed.options.indent_width = value
                     .parse()
                     .ok()
                     .filter(|n| (2..=8).contains(n))
-                    .ok_or(format!(
-                        "{arg} の値は 2 から 8 の数値にしてください: {value}"
-                    ))?;
+                    .ok_or(format!("{arg} must be a number from 2 to 8: {value}"))?;
             }
             "--keyword-case" => {
-                let value = args.next().ok_or(format!("{arg} に値がありません"))?;
+                let value = args.next().ok_or(format!("{arg} requires a value"))?;
                 parsed.options.keyword_case = match value.as_str() {
                     "upper" => KeywordCase::Upper,
                     "lower" => KeywordCase::Lower,
                     "preserve" => KeywordCase::Preserve,
                     _ => {
                         return Err(format!(
-                            "{arg} の値は upper / lower / preserve のどれかにしてください: {value}"
+                            "{arg} must be one of upper / lower / preserve: {value}"
                         ));
                     }
                 };
             }
             "--comma" => {
-                let value = args.next().ok_or(format!("{arg} に値がありません"))?;
+                let value = args.next().ok_or(format!("{arg} requires a value"))?;
                 parsed.options.comma_style = match value.as_str() {
                     "leading" => CommaStyle::Leading,
                     "trailing" => CommaStyle::Trailing,
                     _ => {
-                        return Err(format!(
-                            "{arg} の値は leading / trailing のどちらかにしてください: {value}"
-                        ));
+                        return Err(format!("{arg} must be leading or trailing: {value}"));
                     }
                 };
             }
@@ -122,19 +118,20 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
                     Mode::Check
                 };
                 if parsed.mode != Mode::Print && parsed.mode != mode {
-                    return Err("--write と --check は同時に指定できません".to_string());
+                    return Err("--write and --check cannot be used together".to_string());
                 }
                 parsed.mode = mode;
             }
             "-" => parsed.paths.push(arg),
-            _ if arg.starts_with('-') => return Err(format!("不明なオプションです: {arg}")),
+            _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}")),
             _ => parsed.paths.push(arg),
         }
     }
     Ok(parsed)
 }
 
-/// 引数のパスを入力の並びにする。ディレクトリはその下の *.sql を名前順に探す。
+/// Turn the path arguments into a list of inputs. A directory is searched for the *.sql files
+/// under it, in name order.
 fn collect_inputs(paths: &[String]) -> Result<Vec<Input>, String> {
     if paths.is_empty() {
         return Ok(vec![Input::Stdin]);
@@ -149,7 +146,7 @@ fn collect_inputs(paths: &[String]) -> Result<Vec<Input>, String> {
         if path.is_dir() {
             let mut files = Vec::new();
             find_sql_files(path, &mut files)
-                .map_err(|e| format!("{} を読めませんでした: {e}", path.display()))?;
+                .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
             files.sort();
             inputs.extend(files.into_iter().map(Input::File));
         } else {
@@ -166,8 +163,9 @@ fn find_sql_files(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
             continue;
         }
         let path = entry.path();
-        // `file_type()` はリンク先を見ないので、ディレクトリへのシンボリックリンクはたどらない（循環を避ける）。
-        // ファイルへのリンクは、下の `is_file()` がリンク先を見るので含める
+        // `file_type()` does not follow links, so symlinks to directories are not descended
+        // into (avoids cycles). Links to files are included, because `is_file()` below does
+        // follow them.
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
             find_sql_files(&path, files)?;
@@ -182,12 +180,12 @@ fn find_sql_files(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
-/// 同じディレクトリの一時ファイルに書いてから置き換える。途中で止まっても元のファイルが欠けない。
-/// 権限は元のファイルに合わせる
+/// Write to a temporary file in the same directory, then replace the original. If interrupted
+/// midway, the original file is left intact. Permissions are copied from the original file.
 fn write_atomically(path: &Path, content: &str) -> io::Result<()> {
     let file_name = path
         .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "ファイル名がありません"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "file name is missing"))?;
     let mut tmp_name = std::ffi::OsString::from(".");
     tmp_name.push(file_name);
     tmp_name.push(".pgsqlfmt-tmp");
@@ -226,7 +224,7 @@ fn main() -> ExitCode {
     };
     if args.mode == Mode::Print && inputs.len() > 1 {
         return usage_error(
-            "複数のファイルを整形するときは --write か --check を指定してください".to_string(),
+            "specify --write or --check when formatting multiple files".to_string(),
         );
     }
 
@@ -237,7 +235,7 @@ fn main() -> ExitCode {
         let src = match input.read() {
             Ok(src) => src,
             Err(e) => {
-                eprintln!("{} を読めませんでした: {e}", input.name());
+                eprintln!("cannot read {}: {e}", input.name());
                 failed = true;
                 continue;
             }
@@ -246,7 +244,7 @@ fn main() -> ExitCode {
         let result = match (args.mode, input) {
             (Mode::Check, _) => {
                 if formatted != src {
-                    eprintln!("整形されていません: {}", input.name());
+                    eprintln!("not formatted: {}", input.name());
                     unformatted += 1;
                 }
                 Ok(())
@@ -256,20 +254,20 @@ fn main() -> ExitCode {
                     Ok(())
                 } else {
                     write_atomically(path, &formatted)
-                        .map(|()| eprintln!("整形しました: {}", input.name()))
+                        .map(|()| eprintln!("formatted: {}", input.name()))
                 }
             }
-            // 標準入力は --write でも標準出力に書く
+            // Standard input is written to standard output even with --write
             (Mode::Print | Mode::Write, _) => stdout.write_all(formatted.as_bytes()),
         };
         if let Err(e) = result {
-            eprintln!("{} を書けませんでした: {e}", input.name());
+            eprintln!("cannot write {}: {e}", input.name());
             failed = true;
         }
     }
 
     if unformatted > 0 {
-        eprintln!("{unformatted} 個のファイルが整形されていません");
+        eprintln!("{unformatted} file(s) not formatted");
     }
     if failed {
         ExitCode::from(2)

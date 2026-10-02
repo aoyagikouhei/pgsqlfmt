@@ -1,16 +1,19 @@
-//! 関数定義・DO と PL/pgSQL の本体のレイアウト。
+//! Layout of function definitions, DO and PL/pgSQL bodies.
 //!
-//! - `CREATE FUNCTION name(args)` の後ろの RETURNS / LANGUAGE / AS などのオプションは 1 行ずつ
-//! - ドル引用符の本体の中身は、CREATE と同じ深さから書き始める
-//! - DECLARE / BEGIN / EXCEPTION / END / ELSIF / ELSE はブロックの深さ、文は 1 段深く
-//! - CASE 文の WHEN と EXCEPTION の WHEN はさらに 1 段深く、その中の文はもう 1 段深く
-//! - `FOR r IN` / `RETURN QUERY` / `OPEN c FOR` の後ろの問い合わせは、次の行から 1 段深く
+//! - The options after `CREATE FUNCTION name(args)` (RETURNS / LANGUAGE / AS, ...) go one per line
+//! - The contents of a dollar-quoted body start at the same depth as CREATE
+//! - DECLARE / BEGIN / EXCEPTION / END / ELSIF / ELSE sit at the block's depth; statements one
+//!   level deeper
+//! - WHEN of a CASE statement and WHEN of EXCEPTION go one level deeper still, and the statements
+//!   inside them one more
+//! - The query after `FOR r IN` / `RETURN QUERY` / `OPEN c FOR` starts on the next line, one
+//!   level deeper
 
 use super::{Formatter, as_node, children, is_statement};
 use crate::lexer::TokenKind;
 use crate::syntax::{Element, Node, NodeKind};
 
-/// ブロックの深さの行から始めるキーワード
+/// Keywords that start a line at the block's depth
 const BLOCK_KEYWORDS: &[&str] = &[
     "declare",
     "begin",
@@ -45,7 +48,7 @@ fn is_pl_statement(kind: NodeKind) -> bool {
     )
 }
 
-/// 親の中で、改行して始める部分（中にさらに文を持つ）
+/// Parts inside a parent that start on a new line (and hold statements of their own)
 fn is_pl_part(kind: NodeKind) -> bool {
     matches!(
         kind,
@@ -64,7 +67,7 @@ fn is_keyword(element: &Element, words: &[&str]) -> bool {
 }
 
 impl<'a> Formatter<'a> {
-    /// `CREATE FUNCTION name(args)` と、1 行ずつのオプション
+    /// `CREATE FUNCTION name(args)`, with the options one per line
     pub(super) fn create_function(&mut self, stmt: &Node<'a>, base: usize) {
         for element in children(stmt) {
             match as_node(element).map(|n| (n, n.kind)) {
@@ -98,7 +101,8 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `$tag$` の後ろで改行し、中身を `base` の深さから書いて、閉じる `$tag$` を独立した行に置く
+    /// Breaks after `$tag$`, writes the contents starting at depth `base`, and puts the closing
+    /// `$tag$` on its own line
     fn function_body(&mut self, body: &Node<'a>, base: usize) {
         let mut contents = 0;
         for element in children(body) {
@@ -124,8 +128,8 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 元のテキストで、このノードの前に空行があれば空行を入れる。
-    /// 並びの先頭（`first`）では、コメントの前の空行も含めて入れない。
+    /// Inserts a blank line if one preceded this node in the original text.
+    /// At the head of a list (`first`), no blank line is inserted, not even one before a comment.
     fn blank_line_if_separated(&mut self, node: &Node<'a>, first: bool) {
         let Some((token, _)) = super::writer::token_range(node) else {
             return;
@@ -137,7 +141,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `BEGIN ATOMIC` の中の文は 1 段深く、`END` は `base` の深さ
+    /// Statements inside `BEGIN ATOMIC` go one level deeper; `END` sits at depth `base`
     fn atomic_body(&mut self, node: &Node<'a>, base: usize) {
         for element in children(node) {
             match element {
@@ -166,7 +170,7 @@ impl<'a> Formatter<'a> {
                 }
             }
             NodeKind::PlSimpleStmt => self.loose(node),
-            // 中に文や問い合わせを持つもの
+            // Those that hold statements or queries
             NodeKind::PlBlock
             | NodeKind::PlIf
             | NodeKind::PlCase
@@ -174,12 +178,14 @@ impl<'a> Formatter<'a> {
             | NodeKind::PlDecl
             | NodeKind::PlReturn
             | NodeKind::PlOpen => self.pl_children(node, base),
-            // `RAISE EXCEPTION` の EXCEPTION などを改行しないよう、1 行で書く
+            // Written on one line, so that the EXCEPTION of `RAISE EXCEPTION` and the like do not
+            // start a new line
             _ => self.node(node),
         }
     }
 
-    /// PL/pgSQL の文やブロックの子を書く。`base` はこの文の行の深さ。
+    /// Writes the children of a PL/pgSQL statement or block. `base` is the depth of the
+    /// statement's own line.
     fn pl_children(&mut self, node: &Node<'a>, base: usize) {
         let part_base = match node.kind {
             NodeKind::PlCase | NodeKind::PlExceptionSection => base + self.indent_width,
@@ -213,7 +219,7 @@ impl<'a> Formatter<'a> {
                     }
                     self.w.newline(base);
                 }
-                // `FOR r IN` / `RETURN QUERY` / `OPEN c FOR` / `CURSOR FOR` の後ろの問い合わせ
+                // The query after `FOR r IN` / `RETURN QUERY` / `OPEN c FOR` / `CURSOR FOR`
                 Element::Node(n) if is_statement(n.kind) => {
                     self.w.newline(base + self.indent_width);
                     self.statement(n, base + self.indent_width);

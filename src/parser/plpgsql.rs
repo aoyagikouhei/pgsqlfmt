@@ -1,16 +1,18 @@
-//! PL/pgSQL の関数本体（PostgreSQL の `src/pl/plpgsql/src/pl_gram.y` に合わせた範囲）。
+//! PL/pgSQL function bodies (the scope matched to PostgreSQL's `src/pl/plpgsql/src/pl_gram.y`).
 //!
-//! 文はすべて `;` で終わる。文の途中で解釈できなくなったら、`;` かブロックの区切り
-//! （`END` / `ELSE` / `ELSIF` / `WHEN` / `EXCEPTION`）までを `Error` にして次の文へ進む。
+//! Every statement ends with `;`. When a statement can no longer be parsed partway through,
+//! everything up to the `;` or a block delimiter (`END` / `ELSE` / `ELSIF` / `WHEN` / `EXCEPTION`)
+//! becomes an `Error` and parsing moves on to the next statement.
 
 use super::Parser;
 use crate::lexer::TokenKind;
 use crate::syntax::NodeKind;
 
-/// 文の並びを終わらせるキーワード
+/// Keywords that end a statement list
 const BLOCK_ENDS: &[&str] = &["end", "else", "elsif", "elseif", "when", "exception"];
 
-/// PL/pgSQL の文としては解釈せず、`;` までをそのまま保持する SQL のコマンド
+/// SQL commands that are parsed like the outer SQL rather than as PL/pgSQL statements
+/// (unsupported ones are kept verbatim up to the `;`)
 const RAW_SQL_COMMANDS: &[&str] = &[
     "alter",
     "analyze",
@@ -48,7 +50,7 @@ const RAW_SQL_COMMANDS: &[&str] = &[
 const RAISE_LEVELS: &[&str] = &["debug", "log", "info", "notice", "warning", "exception"];
 
 impl Parser<'_> {
-    /// 本体全体。ブロックの後ろに残ったものは `Error` にする。
+    /// The whole body. Anything left after the block becomes an `Error`.
     pub(super) fn pl_body(&mut self) {
         if self.at_pl_block_start() {
             self.pl_block();
@@ -108,7 +110,7 @@ impl Parser<'_> {
                 self.pl_exception_section();
             }
         }
-        // 対応のない ELSE / WHEN などが残っていたら、それを `Error` にして END を探し続ける
+        // If an unmatched ELSE / WHEN etc. remains, make it an `Error` and keep looking for END
         while !self.at_eof() && !self.at_kw("end") {
             self.error_token();
             self.pl_statements();
@@ -164,10 +166,10 @@ impl Parser<'_> {
         true
     }
 
-    /// 文の並び。ブロックの区切りのキーワードか本体の終わりで止まる。
+    /// A statement list. Stops at a block delimiter keyword or the end of the body.
     fn pl_statements(&mut self) {
         while !self.at_eof() && !self.at_any_kw(BLOCK_ENDS) {
-            // 空の文
+            // An empty statement
             if self.eat(TokenKind::Semicolon) {
                 continue;
             }
@@ -187,10 +189,11 @@ impl Parser<'_> {
             return self.pl_block();
         }
         if self.at_pl_label() {
-            // ラベルはブロックかループの前にだけ書ける
+            // A label can only precede a block or a loop
             return self.pl_loop();
         }
-        // `truncate := 1` / `drop[1] := 2` / `insert.x := 3` は、SQL の語と同じ綴りの変数への代入
+        // `truncate := 1` / `drop[1] := 2` / `insert.x := 3` are assignments to variables spelled
+        // like SQL words
         let assigns = self.nth(1).is_some_and(|t| {
             matches!(
                 t.kind,
@@ -237,7 +240,7 @@ impl Parser<'_> {
             }),
             "get" => self.pl_simple(NodeKind::PlGetDiagnostics, Self::pl_get_diagnostics_rest),
             "open" => self.pl_simple(NodeKind::PlOpen, Self::pl_open_rest),
-            // 文の先頭の NULL は NULL 文しかない
+            // NULL at the start of a statement can only be the NULL statement
             "null" => self.pl_simple(NodeKind::PlNull, |_| {}),
             "fetch" | "move" | "close" | "commit" | "rollback" => {
                 self.pl_simple(NodeKind::PlSimpleStmt, |p| {
@@ -254,14 +257,15 @@ impl Parser<'_> {
                     p.statement_body();
                 })
             }
-            // CREATE TABLE なども、外側の SQL と同じように解析する（対応していない文はそのまま）
+            // CREATE TABLE and the like are parsed just as in the outer SQL (unsupported
+            // statements are kept as is)
             _ if self.at_any_kw(RAW_SQL_COMMANDS) => self.pl_sql(Self::statement),
             _ if self.at_name() => self.pl_assignment(),
             _ => {}
         }
     }
 
-    /// 先頭のキーワードを取り込み、`rest` で残りを読んで `;` で閉じる文
+    /// A statement: consume the leading keyword, read the rest with `rest`, then close with `;`
     fn pl_simple(&mut self, kind: NodeKind, rest: impl FnOnce(&mut Self)) {
         self.start_node(kind);
         self.bump_kw();
@@ -270,7 +274,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 本体の中の SQL 文
+    /// A SQL statement inside the body
     fn pl_sql(&mut self, statement: impl FnOnce(&mut Self)) {
         self.start_node(NodeKind::PlSqlStmt);
         statement(self);
@@ -278,7 +282,8 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `target := expr;`。代入でなければ `;` までを 1 つの文として保持する。
+    /// `target := expr;`. If it is not an assignment, everything up to the `;` is kept as one
+    /// statement.
     fn pl_assignment(&mut self) {
         let cp = self.checkpoint();
         self.set_target();
@@ -298,7 +303,7 @@ impl Parser<'_> {
         );
     }
 
-    /// `;` で文を閉じる。`;` の前に読み残しがあれば `Error` にする。
+    /// Close the statement with `;`. Anything left unread before the `;` becomes an `Error`.
     fn pl_end_statement(&mut self) {
         if !self.at(TokenKind::Semicolon) {
             self.error_until(|p| p.at_any_kw(BLOCK_ENDS));
@@ -306,7 +311,8 @@ impl Parser<'_> {
         self.eat(TokenKind::Semicolon);
     }
 
-    /// 解釈できなかった宣言などを、`;`（とその `;`）か `stops` の手前まで `Error` にする
+    /// Make an `Error` out of a declaration etc. that could not be parsed, up to and including the
+    /// `;`, or up to just before `stops`
     fn pl_skip_to_statement_end(&mut self, stops: &[&str]) {
         if self.at_eof() || self.at_any_kw(stops) {
             return;
@@ -409,7 +415,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `FOR` の後ろの `target IN ...`。整数の範囲・問い合わせ・EXECUTE・カーソルのいずれか。
+    /// The `target IN ...` after `FOR`: an integer range, a query, EXECUTE, or a cursor.
     fn pl_for_header(&mut self) {
         while self.name_path() > 0 && self.eat(TokenKind::Comma) {}
         self.eat_kw("in");
@@ -461,7 +467,7 @@ impl Parser<'_> {
         if self.eat_kw("sqlstate") {
             self.expr();
         } else {
-            // USING や `;` では式が始まらないので、何も読まずに終わる
+            // No expression starts at USING or `;`, so this reads nothing and ends
             while self.expr() && self.eat(TokenKind::Comma) {}
         }
         if self.at_kw("using") {
@@ -482,7 +488,7 @@ impl Parser<'_> {
         }
     }
 
-    /// EXECUTE の `INTO [STRICT] target, ...` と `USING expr, ...`（順不同）
+    /// EXECUTE's `INTO [STRICT] target, ...` and `USING expr, ...` (in either order)
     fn pl_into_using(&mut self) {
         loop {
             if self.at_kw("into") {

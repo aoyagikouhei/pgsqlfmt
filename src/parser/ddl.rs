@@ -1,13 +1,15 @@
-//! DDL: `CREATE TABLE` / `CREATE INDEX` / `CREATE [MATERIALIZED] VIEW` / `ALTER TABLE` / `DROP`。
+//! DDL: `CREATE TABLE` / `CREATE INDEX` / `CREATE [MATERIALIZED] VIEW` / `ALTER TABLE` / `DROP`.
 //!
-//! 列の定義や制約・オプションは種類が多いので、既定値（DEFAULT）・CHECK・生成列の式・型名など
-//! 式が来る位置だけを解釈し、それ以外は既知のキーワード（大文字にする）と名前・括弧の並びとして読む。
+//! Column definitions, constraints, and options come in many forms, so only the positions where an
+//! expression appears (DEFAULT, CHECK, generated-column expressions, type names, and so on) are
+//! parsed; everything else is read as a list of known keywords (upper-cased), names, and
+//! parentheses.
 
 use super::Parser;
 use crate::lexer::TokenKind;
 use crate::syntax::NodeKind;
 
-/// DDL の中でキーワードとして扱う語
+/// Words treated as keywords inside DDL
 const DDL_KEYWORDS: &[&str] = &[
     "action",
     "add",
@@ -109,7 +111,7 @@ const DDL_KEYWORDS: &[&str] = &[
     "without",
 ];
 
-/// DROP の後ろに来るオブジェクトの種類
+/// Object types that follow DROP
 const OBJECT_TYPES: &[&str] = &[
     "aggregate",
     "collation",
@@ -133,7 +135,7 @@ const OBJECT_TYPES: &[&str] = &[
     "view",
 ];
 
-/// シーケンスのオプションの始まり（CREATE / ALTER SEQUENCE）
+/// Words that start a sequence option (CREATE / ALTER SEQUENCE)
 const SEQUENCE_OPTION_STARTS: &[&str] = &[
     "as",
     "increment",
@@ -147,7 +149,7 @@ const SEQUENCE_OPTION_STARTS: &[&str] = &[
     "owned",
 ];
 
-/// ALTER の後ろのオブジェクトの種類（ALTER TABLE は別に読む）。長いものから順に当てる
+/// Object types that follow ALTER (ALTER TABLE is read separately). Matched longest first
 const ALTER_OBJECT_TYPES: &[&[&str]] = &[
     &["text", "search", "configuration"],
     &["text", "search", "dictionary"],
@@ -193,7 +195,7 @@ const ALTER_OBJECT_TYPES: &[&[&str]] = &[
     &["view"],
 ];
 
-/// ALTER の操作でキーワードにする語
+/// Words treated as keywords in ALTER actions
 const ALTER_KEYWORDS: &[&str] = &[
     "add",
     "admin",
@@ -287,7 +289,8 @@ const ALTER_KEYWORDS: &[&str] = &[
     "without",
 ];
 
-/// ALTER で、後ろに名前が来るキーワード（`RENAME TO x` / `SET SCHEMA x` / `RENAME COLUMN a TO b` など）
+/// ALTER keywords that are followed by a name
+/// (`RENAME TO x` / `SET SCHEMA x` / `RENAME COLUMN a TO b`, etc.)
 const ALTER_NAME_BEFORE: &[&str] = &[
     "to",
     "schema",
@@ -297,7 +300,7 @@ const ALTER_NAME_BEFORE: &[&str] = &[
     "tablespace",
 ];
 
-/// GRANT / REVOKE の権限
+/// GRANT / REVOKE privileges
 const PRIVILEGES: &[&str] = &[
     "all",
     "alter",
@@ -320,8 +323,8 @@ const PRIVILEGES: &[&str] = &[
     "usage",
 ];
 
-/// GRANT / REVOKE の ON の後ろのオブジェクトの種類。長いものから順に当てる
-/// （ALTER DEFAULT PRIVILEGES の複数形も含む）
+/// Object types after ON in GRANT / REVOKE. Matched longest first
+/// (includes the plural forms used by ALTER DEFAULT PRIVILEGES)
 const GRANT_OBJECT_TYPES: &[&[&str]] = &[
     &["all", "functions", "in", "schema"],
     &["all", "procedures", "in", "schema"],
@@ -352,7 +355,7 @@ const GRANT_OBJECT_TYPES: &[&[&str]] = &[
     &["types"],
 ];
 
-/// GRANT / REVOKE の TO / FROM の後ろでキーワードにする語
+/// Words treated as keywords after TO / FROM in GRANT / REVOKE
 const GRANTEE_KEYWORDS: &[&str] = &[
     "group",
     "public",
@@ -361,7 +364,7 @@ const GRANTEE_KEYWORDS: &[&str] = &[
     "session_user",
 ];
 
-/// ALTER TABLE で、後ろに名前が来るキーワード
+/// ALTER TABLE keywords that are followed by a name
 const ALTER_TABLE_NAME_BEFORE: &[&str] = &[
     "index",
     "inherit",
@@ -372,22 +375,22 @@ const ALTER_TABLE_NAME_BEFORE: &[&str] = &[
     "trigger",
 ];
 
-/// ロールを指定する位置でキーワードにする語
+/// Words treated as keywords where a role is specified
 const ROLE_SPEC_KEYWORDS: &[&str] = &["current_role", "current_user", "session_user"];
 
-/// GRANT / REVOKE の受け取るロールの並びの後ろに続く語
+/// Words that follow the grantee role list in GRANT / REVOKE
 const GRANTEE_LIST_ENDS: &[&str] = &["with", "granted", "cascade", "restrict"];
 
-/// GRANT / REVOKE の末尾のオプション
+/// Trailing options of GRANT / REVOKE
 const GRANT_OPTION_WORDS: &[&str] = &[
     "with", "grant", "admin", "inherit", "set", "option", "true", "false", "granted", "by",
     "cascade", "restrict",
 ];
 
-/// TRUNCATE の表の並びの後ろのオプション
+/// Options after the table list in TRUNCATE
 const TRUNCATE_OPTIONS: &[&str] = &["restart", "continue", "identity", "cascade", "restrict"];
 
-/// COMMENT ON の後ろのオブジェクトの種類（PostgreSQL 18 の文書の一覧）。長いものから順に当てる
+/// Object types after COMMENT ON (the list from the PostgreSQL 18 docs). Matched longest first
 const COMMENT_OBJECT_TYPES: &[&[&str]] = &[
     &["text", "search", "configuration"],
     &["text", "search", "dictionary"],
@@ -434,11 +437,11 @@ const COMMENT_OBJECT_TYPES: &[&[&str]] = &[
     &["view"],
 ];
 
-/// COMMENT ON の名前の後ろでキーワードにする語
-/// （`ON [DOMAIN] table` / `OPERATOR CLASS c USING btree` / `TRANSFORM FOR t LANGUAGE l`）
+/// Words treated as keywords after the name in COMMENT ON
+/// (`ON [DOMAIN] table` / `OPERATOR CLASS c USING btree` / `TRANSFORM FOR t LANGUAGE l`)
 const COMMENT_NAME_KEYWORDS: &[&str] = &["on", "domain", "using", "language"];
 
-/// CREATE TRIGGER の句の始まり
+/// Words that start a CREATE TRIGGER clause
 const TRIGGER_CLAUSE_STARTS: &[&str] = &[
     "before",
     "after",
@@ -453,7 +456,7 @@ const TRIGGER_CLAUSE_STARTS: &[&str] = &[
     "execute",
 ];
 
-/// 表制約の始まり
+/// Words that start a table constraint
 const TABLE_CONSTRAINT_STARTS: &[&str] = &[
     "constraint",
     "check",
@@ -464,7 +467,8 @@ const TABLE_CONSTRAINT_STARTS: &[&str] = &[
 ];
 
 impl Parser<'_> {
-    /// n 番目から `words` が続くか（`None` はその位置の語を省略できる）
+    /// Whether `words` follow from the current token. Each element lists the alternatives for one
+    /// position; an empty string `""` among them means the word at that position may be omitted
     pub(super) fn at_words(&self, words: &[&[&str]]) -> bool {
         let mut n = 0;
         for alternatives in words {
@@ -524,7 +528,8 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 文の終わりまでのオプション。`AS` の後ろに問い合わせが来たら `as_query` で読む。
+    /// Options up to the end of the statement. When a query follows `AS`, it is read with
+    /// `as_query`.
     fn ddl_rest(&mut self, as_query: fn(&mut Self)) {
         while !self.at_statement_end() {
             if self.at_kw("as") && !self.nth_is(1, TokenKind::LParen) {
@@ -540,7 +545,7 @@ impl Parser<'_> {
         }
     }
 
-    /// `AS query`。問い合わせは、後ろの `WITH [NO] DATA` / `WITH CHECK OPTION` の手前で終わる。
+    /// `AS query`. The query ends before a trailing `WITH [NO] DATA` / `WITH CHECK OPTION`.
     fn as_query(&mut self) {
         self.bump_kw();
         self.with_stops(&["with"], |p| {
@@ -565,7 +570,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 列の定義・表制約・`LIKE source`
+    /// A column definition, a table constraint, or `LIKE source`
     fn table_element(&mut self) -> bool {
         if self.at_any_kw(TABLE_CONSTRAINT_STARTS) || self.at_kw("like") {
             self.start_node(NodeKind::TableConstraint);
@@ -589,7 +594,8 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// カンマ・閉じ括弧・文の終わり・`stop` の手前までの、制約やオプションの並び
+    /// A list of constraints or options up to a comma, a closing parenthesis, the end of the
+    /// statement, or `stop`
     fn ddl_words(&mut self, stop: fn(&Self) -> bool) {
         while !self.at_statement_end()
             && !self.at(TokenKind::RParen)
@@ -608,8 +614,8 @@ impl Parser<'_> {
             } else if self.eat_kw("type") {
                 self.type_name();
             } else if self.eat_kw("using") {
-                // `USING btree` / `USING expr`（ALTER COLUMN ... TYPE ... USING）。
-                // REPLICA IDENTITY USING INDEX の INDEX は呼び出し側で読む
+                // `USING btree` / `USING expr` (ALTER COLUMN ... TYPE ... USING).
+                // The INDEX of REPLICA IDENTITY USING INDEX is read by the caller
                 if !self.at(TokenKind::LParen) && !self.at_kw("index") {
                     self.expr();
                 }
@@ -627,7 +633,7 @@ impl Parser<'_> {
         }
     }
 
-    /// 列名やオプションの括弧 `(a, b)` / `(fillfactor = 70)` / `(START WITH 1)`
+    /// Parenthesized column names or options: `(a, b)` / `(fillfactor = 70)` / `(START WITH 1)`
     pub(super) fn ddl_paren(&mut self) {
         self.start_node(NodeKind::ExprList);
         self.bump();
@@ -670,7 +676,7 @@ impl Parser<'_> {
             self.comma_list(
                 |_| false,
                 |p| {
-                    // 式の後ろの COLLATE・演算子クラス・ASC / DESC・NULLS FIRST / LAST
+                    // COLLATE, operator class, ASC / DESC, NULLS FIRST / LAST after the expression
                     let found = p.expr();
                     if found {
                         p.ddl_words(|_| false);
@@ -711,7 +717,8 @@ impl Parser<'_> {
 
     /// `CREATE [OR REPLACE] [CONSTRAINT] TRIGGER name {BEFORE | AFTER | INSTEAD OF} event [OR ...] ON table
     ///  [FROM ref] [deferrable] [REFERENCING ...] [FOR [EACH] {ROW | STATEMENT}] [WHEN (cond)]
-    ///  EXECUTE {FUNCTION | PROCEDURE} f(args)`。名前の後ろは句ごとに `TriggerClause` にする
+    ///  EXECUTE {FUNCTION | PROCEDURE} f(args)`.
+    /// After the name, each clause becomes a `TriggerClause`
     pub(super) fn create_trigger_stmt(&mut self) {
         self.start_node(NodeKind::CreateTriggerStmt);
         while !self.at_kw("trigger") {
@@ -723,8 +730,9 @@ impl Parser<'_> {
         }
         while !self.at_statement_end() {
             if !self.at_any_kw(TRIGGER_CLAUSE_STARTS) {
-                // 解釈できない部分は次の句まで 1 つにまとめ、前の句と同じ行に元のまま書く
-                // （`ON :tbl` のような psql の変数を分けない）
+                // Anything that cannot be parsed is grouped into one node up to the next clause
+                // and written verbatim on the same line as the previous clause (psql variables
+                // such as `ON :tbl` are not split)
                 self.start_node(NodeKind::Error);
                 while !self.at_statement_end() && !self.at_any_kw(TRIGGER_CLAUSE_STARTS) {
                     self.bump_balanced();
@@ -743,7 +751,7 @@ impl Parser<'_> {
                     self.bump_kw();
                 }
             } else if self.eat_kw("referencing") {
-                // `{OLD | NEW} TABLE [AS] name` の並び
+                // A list of `{OLD | NEW} TABLE [AS] name`
                 while self.at_any_kw(&["old", "new"]) {
                     self.bump_kw();
                     self.eat_kw("table");
@@ -812,11 +820,11 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 文の終わりまでのシーケンスのオプション。1 つずつ `SequenceOption` にする
+    /// Sequence options up to the end of the statement. Each one becomes a `SequenceOption`
     pub(super) fn sequence_options(&mut self) {
         while !self.at_statement_end() {
             if !self.at_any_kw(SEQUENCE_OPTION_STARTS) {
-                // 解釈できない部分は次のオプションまで元のまま書く
+                // Anything that cannot be parsed is written verbatim up to the next option
                 self.raw_until(|p| p.at_any_kw(SEQUENCE_OPTION_STARTS));
                 continue;
             }
@@ -826,7 +834,7 @@ impl Parser<'_> {
             match word.as_str() {
                 "as" => self.type_name(),
                 "no" => {
-                    // NO MINVALUE / NO MAXVALUE / NO CYCLE のどれか 1 つ
+                    // Exactly one of NO MINVALUE / NO MAXVALUE / NO CYCLE
                     let _ =
                         self.eat_kw("minvalue") || self.eat_kw("maxvalue") || self.eat_kw("cycle");
                 }
@@ -859,7 +867,7 @@ impl Parser<'_> {
         self.name_path();
         if self.eat_kw("as") {
             if self.at(TokenKind::LParen) {
-                // 複合型の列は CREATE TABLE の列と同じに読む
+                // The columns of a composite type are read like CREATE TABLE columns
                 self.table_element_list();
             } else if (self.eat_kw("enum") || self.eat_kw("range")) && self.at(TokenKind::LParen) {
                 self.ddl_paren();
@@ -871,8 +879,9 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `CREATE SCHEMA [IF NOT EXISTS] [name] [AUTHORIZATION role]`。
-    /// 中に CREATE TABLE などを書いた文は、改行の位置を残すために全体を元のまま書く
+    /// `CREATE SCHEMA [IF NOT EXISTS] [name] [AUTHORIZATION role]`.
+    /// A statement with CREATE TABLE etc. inside is written verbatim as a whole so that the line
+    /// breaks are preserved
     pub(super) fn create_schema_stmt(&mut self) {
         let mut n = 2;
         if self.nth_kw(n, "if") {
@@ -909,7 +918,7 @@ impl Parser<'_> {
         self.if_exists();
         self.name_path();
         while !self.at_statement_end() {
-            // VERSION の値（'x.y' でも名前でも）は、次の繰り返しで元のまま書く
+            // The VERSION value (whether 'x.y' or a name) is written verbatim on the next iteration
             if self.eat_kw("with") || self.eat_kw("cascade") || self.eat_kw("version") {
                 continue;
             }
@@ -922,9 +931,9 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `ALTER object_type [IF EXISTS] name [(args)] [ON table] action ...`（ALTER TABLE 以外）。
-    /// ALTER SEQUENCE のオプションは 1 つずつ `SequenceOption` にし、
-    /// ALTER DEFAULT PRIVILEGES の後ろは GRANT / REVOKE として読む
+    /// `ALTER object_type [IF EXISTS] name [(args)] [ON table] action ...` (except ALTER TABLE).
+    /// ALTER SEQUENCE options become one `SequenceOption` each, and what follows
+    /// ALTER DEFAULT PRIVILEGES is read as GRANT / REVOKE
     pub(super) fn alter_stmt(&mut self) {
         self.start_node(NodeKind::AlterStmt);
         self.bump_kw();
@@ -971,9 +980,10 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// ALTER の操作。既知の語をキーワードにし、名前・式・括弧はそれぞれ読む。1 行に書く
+    /// ALTER actions. Known words become keywords; names, expressions, and parentheses are each
+    /// read as such. Written on one line
     fn alter_actions(&mut self) {
-        // 直前にキーワードとして読んだ語（SET DEFAULT の判定に使う）
+        // The word last read as a keyword (used to recognize SET DEFAULT)
         let mut previous = String::new();
         while !self.at_statement_end() {
             if self.eat(TokenKind::Comma) {
@@ -984,14 +994,15 @@ impl Parser<'_> {
                 let word = self.current().unwrap().text.to_ascii_lowercase();
                 self.bump_kw();
                 match word.as_str() {
-                    // SET DEFAULT expr（`SET x = DEFAULT` / `SET x TO DEFAULT` の DEFAULT は値）
+                    // SET DEFAULT expr (the DEFAULT in `SET x = DEFAULT` / `SET x TO DEFAULT` is
+                    // a value)
                     "default" if previous == "set" && !self.at_statement_end() => {
                         self.expr();
                     }
                     _ if ALTER_NAME_BEFORE.contains(&word.as_str()) => {
                         self.if_exists();
-                        // キーワードと同じ綴りでも名前（`RENAME TO data` / `SET SCHEMA public`）。
-                        // `SET x TO DEFAULT` と CURRENT_USER などは除く
+                        // A name even when spelled like a keyword (`RENAME TO data` /
+                        // `SET SCHEMA public`), except `SET x TO DEFAULT`, CURRENT_USER, etc.
                         if self.at_any_kw(ROLE_SPEC_KEYWORDS) {
                             self.bump_kw();
                         } else if !self.at_kw("default") {
@@ -1025,7 +1036,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// GRANT / REVOKE の本体（ALTER DEFAULT PRIVILEGES の後ろでも使う）
+    /// The body of GRANT / REVOKE (also used after ALTER DEFAULT PRIVILEGES)
     pub(super) fn grant_rest(&mut self) {
         let at_list_end = |p: &Self| p.at_statement_end() || p.at_any_kw(&["on", "to", "from"]);
         self.bump_kw();
@@ -1035,7 +1046,8 @@ impl Parser<'_> {
                 self.bump_kw();
             }
         }
-        // 権限の並び（列の並び `SELECT (a, b)` を含む）か、付与するロールの並び
+        // Either the privilege list (including column lists such as `SELECT (a, b)`) or the list
+        // of roles being granted
         while !at_list_end(self) {
             if self.at_any_kw(PRIVILEGES) {
                 self.bump_kw();
@@ -1054,7 +1066,7 @@ impl Parser<'_> {
                     self.bump_kw();
                 }
             }
-            // オブジェクトの並び。関数の引数の括弧は名前に続ける
+            // The object list. A function's argument parentheses stay attached to the name
             while !self.at_statement_end() && !self.at_any_kw(&["to", "from"]) {
                 if self.at(TokenKind::LParen) {
                     self.ddl_paren();
@@ -1064,7 +1076,7 @@ impl Parser<'_> {
             }
         }
         if self.eat_kw("to") || self.eat_kw("from") {
-            // 受け取るロールの並び。`admin` や `option` という名前のロールもそのまま
+            // The grantee role list. Roles named `admin` or `option` are kept as they are
             while !self.at_statement_end() && !self.at_any_kw(GRANTEE_LIST_ENDS) {
                 if self.at_any_kw(GRANTEE_KEYWORDS) {
                     self.bump_kw();
@@ -1094,11 +1106,12 @@ impl Parser<'_> {
         self.start_node(NodeKind::TruncateStmt);
         self.bump_kw();
         self.eat_kw("table");
-        // 表の並び。オプションの語は、表の名前を読んだ後だけキーワードにする（`TRUNCATE identity`）
+        // The table list. Option words become keywords only after a table name has been read
+        // (`TRUNCATE identity`)
         loop {
             self.eat_kw("only");
             if self.name_path() == 0 {
-                // `:tbl` のような psql の変数は、分けずに元のまま書く
+                // psql variables such as `:tbl` are written verbatim without being split
                 self.raw_until(|p| p.at(TokenKind::Comma) || p.at_any_kw(TRUNCATE_OPTIONS));
             }
             if self.at_op("*") {
@@ -1118,7 +1131,8 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 文の終わりか `stop` の手前までを、元のまま書く `Error` にする。文の終わりでなければ必ず 1 つは読む
+    /// Make an `Error` node, written verbatim, up to the end of the statement or `stop`. Always
+    /// consumes at least one token unless at the end of the statement
     pub(super) fn raw_until(&mut self, stop: impl Fn(&Self) -> bool) {
         if self.at_statement_end() {
             return;
@@ -1138,7 +1152,8 @@ impl Parser<'_> {
         self.start_node(NodeKind::CommentStmt);
         self.bump_kw();
         self.bump_kw();
-        // 種類は一覧の語の並びだけをキーワードにする（`TABLE data` / `FAMILY text` の名前は残す）
+        // Only the word sequence from the list becomes keywords for the object type (the names in
+        // `TABLE data` / `FAMILY text` are kept)
         if let Some(words) = COMMENT_OBJECT_TYPES
             .iter()
             .find(|words| words.iter().enumerate().all(|(i, w)| self.nth_kw(i, w)))
@@ -1154,7 +1169,8 @@ impl Parser<'_> {
             } else if self.at(TokenKind::LParen) {
                 self.ddl_paren();
             } else if self.name_path() == 0 {
-                // `:tbl` のような psql の変数や演算子は、分けずに元のまま書く
+                // psql variables such as `:tbl` and operators are written verbatim without being
+                // split
                 self.start_node(NodeKind::Error);
                 while !at_name_end(self)
                     && !self.at_any_kw(COMMENT_NAME_KEYWORDS)
@@ -1168,7 +1184,8 @@ impl Parser<'_> {
         if self.eat_kw("is") {
             self.expr();
         }
-        // `:'v'` / `UESCAPE '!'` など、式として読めなかった残りも同じ行に元のまま書く
+        // Whatever could not be read as an expression (`:'v'` / `UESCAPE '!'`, etc.) is also written
+        // verbatim on the same line
         if !self.at_statement_end() {
             self.start_node(NodeKind::Error);
             while !self.at_statement_end() {
@@ -1213,7 +1230,7 @@ impl Parser<'_> {
                 }
             }
             "drop" | "alter" | "rename" => {
-                // DROP / ALTER / RENAME の後ろの列名や制約名
+                // The column or constraint name after DROP / ALTER / RENAME
                 if !self.eat_kw("column") && self.eat_kw("constraint") {
                     self.if_exists();
                     if self.at_name() {
@@ -1230,7 +1247,7 @@ impl Parser<'_> {
             }
             _ => {}
         }
-        // `INHERIT parent` のように先頭の語の後ろに名前が来る操作
+        // Actions where a name follows the first word, such as `INHERIT parent`
         if ALTER_TABLE_NAME_BEFORE.contains(&first.as_str()) {
             self.name_path();
         }
@@ -1239,8 +1256,8 @@ impl Parser<'_> {
         true
     }
 
-    /// ALTER TABLE の操作の残り。`RENAME TO x` / `SET SCHEMA x` / `ATTACH PARTITION x` などの後ろの名前は、
-    /// キーワードと同じ綴りでも名前として読む
+    /// The rest of an ALTER TABLE action. The name after `RENAME TO x` / `SET SCHEMA x` /
+    /// `ATTACH PARTITION x`, etc. is read as a name even when spelled like a keyword
     fn alter_table_words(&mut self) {
         loop {
             self.ddl_words(|p| p.at_any_kw(ALTER_TABLE_NAME_BEFORE));
@@ -1251,7 +1268,7 @@ impl Parser<'_> {
             if self.at_any_kw(ROLE_SPEC_KEYWORDS) {
                 self.bump_kw();
             } else if !self.at_any_kw(&["all", "user", "always", "replica"]) {
-                // ENABLE TRIGGER ALL / USER などのキーワードは次の ddl_words で読む
+                // Keywords such as ENABLE TRIGGER ALL / USER are read by the next ddl_words
                 self.name_path();
             }
         }

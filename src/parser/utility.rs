@@ -1,13 +1,13 @@
-//! ユーティリティ文: `COPY` / `SET` / `RESET` / `SHOW` / `EXPLAIN` / トランザクション制御。
+//! Utility statements: `COPY` / `SET` / `RESET` / `SHOW` / `EXPLAIN` / transaction control.
 //!
-//! どれも 1 行に書く文なので、既知の語をキーワードにし、名前・式・括弧はそれぞれ読む。
-//! 解釈できない部分は元のまま残す。
+//! All of these are written on one line, so known words become keywords and names, expressions,
+//! and parentheses are each read as such. Anything that cannot be parsed is kept verbatim.
 
 use super::Parser;
 use crate::lexer::TokenKind;
 use crate::syntax::NodeKind;
 
-/// COPY の語（`WITH (...)` の中のオプション名と、古い書き方のオプションを含む）
+/// COPY words (including option names inside `WITH (...)` and the legacy option syntax)
 const COPY_KEYWORDS: &[&str] = &[
     "binary",
     "csv",
@@ -36,7 +36,7 @@ const COPY_KEYWORDS: &[&str] = &[
     "with",
 ];
 
-/// EXPLAIN の `(...)` の中のオプション名
+/// Option names inside EXPLAIN's `(...)`
 const EXPLAIN_OPTIONS: &[&str] = &[
     "analyse",
     "analyze",
@@ -53,7 +53,7 @@ const EXPLAIN_OPTIONS: &[&str] = &[
     "wal",
 ];
 
-/// トランザクション制御と、SET TRANSACTION などのトランザクションのモード
+/// Transaction control and the transaction modes of SET TRANSACTION etc.
 const TRANSACTION_KEYWORDS: &[&str] = &[
     "abort",
     "and",
@@ -88,7 +88,7 @@ const TRANSACTION_KEYWORDS: &[&str] = &[
     "write",
 ];
 
-/// トランザクション制御で、後ろにセーブポイントの名前が来る語
+/// Transaction-control words followed by a savepoint name
 const SAVEPOINT_BEFORE: &[&str] = &["savepoint", "release", "to"];
 
 impl Parser<'_> {
@@ -105,7 +105,7 @@ impl Parser<'_> {
     }
 
     /// `BEGIN` / `START TRANSACTION` / `COMMIT` / `ROLLBACK [TO SAVEPOINT s]` / `SAVEPOINT s` / `RELEASE s` /
-    /// `PREPARE TRANSACTION 'id'` / `COMMIT PREPARED 'id'` など
+    /// `PREPARE TRANSACTION 'id'` / `COMMIT PREPARED 'id'`, etc.
     pub(super) fn transaction_stmt(&mut self) {
         self.start_node(NodeKind::TransactionStmt);
         self.keyword_words(TRANSACTION_KEYWORDS, SAVEPOINT_BEFORE);
@@ -119,7 +119,8 @@ impl Parser<'_> {
         let set = self.at_kw("set");
         self.bump_kw();
         if !set {
-            // RESET / SHOW: ALL / TIME ZONE / ROLE / SESSION AUTHORIZATION / TRANSACTION ISOLATION LEVEL か設定の名前
+            // RESET / SHOW: ALL / TIME ZONE / ROLE / SESSION AUTHORIZATION /
+            // TRANSACTION ISOLATION LEVEL, or a setting name
             self.keyword_words(
                 &[
                     "all",
@@ -137,7 +138,7 @@ impl Parser<'_> {
             self.finish_node();
             return;
         }
-        // `SET local.x = 1` / `SET role = none` のように、キーワードと同じ綴りの設定の名前もある
+        // Some setting names are spelled like keywords, as in `SET local.x = 1` / `SET role = none`
         let plain_name = |p: &Self| {
             p.nth_is(1, TokenKind::Dot)
                 || p.nth_kw(1, "to")
@@ -178,7 +179,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// SET の値の並び（`search_path = a, b`）
+    /// The list of SET values (`search_path = a, b`)
     fn set_values(&mut self) {
         while !self.at_statement_end() {
             if self.eat(TokenKind::Comma) {
@@ -196,7 +197,7 @@ impl Parser<'_> {
     pub(super) fn explain_stmt(&mut self) {
         self.start_node(NodeKind::ExplainStmt);
         self.bump_kw();
-        // `EXPLAIN (SELECT 1) ...` の括弧は問い合わせ
+        // The parentheses in `EXPLAIN (SELECT 1) ...` are a query
         if self.at(TokenKind::LParen) && EXPLAIN_OPTIONS.iter().any(|o| self.nth_kw(1, o)) {
             self.option_list(EXPLAIN_OPTIONS);
         }
@@ -218,7 +219,7 @@ impl Parser<'_> {
             self.subquery_expr();
         } else {
             self.name_path();
-            // 列の並び。キーワードと同じ綴りの列名（owner など）もそのまま
+            // The column list. Column names spelled like keywords (owner, etc.) are kept as is
             if self.at(TokenKind::LParen) {
                 self.expr_list();
             }
@@ -234,7 +235,7 @@ impl Parser<'_> {
             } else if self.at_any_kw(COPY_KEYWORDS) {
                 self.bump_kw();
             } else {
-                // ファイル名・区切り文字などの値は元のまま
+                // Values such as file names and delimiters are kept verbatim
                 self.raw_until(|p| {
                     p.at_any_kw(COPY_KEYWORDS) || p.at_kw("where") || p.at(TokenKind::LParen)
                 });
@@ -243,7 +244,8 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `(name [value], ...)`。各オプションの先頭の名前をキーワードにし、値（`FORMAT csv` の csv）は元のまま書く
+    /// `(name [value], ...)`. The leading name of each option becomes a keyword; the value
+    /// (the csv in `FORMAT csv`) is written verbatim
     fn option_list(&mut self, names: &[&str]) {
         self.start_node(NodeKind::ExprList);
         self.bump();
@@ -256,7 +258,7 @@ impl Parser<'_> {
             if at_option_start && self.at_any_kw(names) {
                 self.bump_kw();
             } else if self.at(TokenKind::LParen) {
-                // `FORCE_QUOTE (a, b)` の列の並び
+                // The column list of `FORCE_QUOTE (a, b)`
                 self.expr_list();
             } else {
                 self.bump_balanced();
@@ -267,18 +269,20 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 文の終わりまでを 1 行の語として読む。`keywords` はキーワードにし、
-    /// `name_before` の語の後ろの名前は（キーワードと同じ綴りでも）名前として読む
+    /// Read everything up to the end of the statement as words on one line. `keywords` become
+    /// keywords, and the name after a `name_before` word is read as a name (even when spelled like
+    /// a keyword)
     fn keyword_words(&mut self, keywords: &[&str], name_before: &[&str]) {
         while !self.at_statement_end() {
             if self.eat(TokenKind::Comma) {
                 continue;
             }
-            // `SHOW session.x` のようにドットが続けば設定の名前
+            // A setting name if a dot follows, as in `SHOW session.x`
             if self.at_any_kw(keywords) && !self.nth_is(1, TokenKind::Dot) {
                 let word = self.current().unwrap().text.to_ascii_lowercase();
                 self.bump_kw();
-                // `ROLLBACK TO SAVEPOINT s` の TO の後ろの SAVEPOINT はキーワードとして次で読む
+                // The SAVEPOINT after TO in `ROLLBACK TO SAVEPOINT s` is read as a keyword on the
+                // next iteration
                 if name_before.contains(&word.as_str()) && !self.at_any_kw(name_before) {
                     self.name_path();
                 }

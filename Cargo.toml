@@ -2,7 +2,7 @@
 name = "pgsqlfmt"
 version = "0.2.0"
 edition = "2024"
-description = "PostgreSQL の SQL / PL/pgSQL のフォーマッター"
+description = "A formatter for PostgreSQL SQL / PL/pgSQL"
 license = "MIT"
 repository = "https://github.com/aoyagikouhei/pgsqlfmt"
 
@@ -11,10 +11,10 @@ repository = "https://github.com/aoyagikouhei/pgsqlfmt"
 [dev-dependencies]
 insta = { version = "1", features = ["glob"] }
 
-# テストは最適化してビルドする（性質テストで大量の入力を整形するため）。デバッグ情報は残る
+# Build tests with optimization (the property tests format a large amount of input). Debug info is kept
 [profile.test]
 opt-level = 1
 
-# 配布するバイナリは記号表を取り除いて小さくする
+# Strip the symbol table from the distributed binary to make it smaller
 [profile.release]
 strip = true

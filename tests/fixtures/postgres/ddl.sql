@@ -1,4 +1,4 @@
--- 実機検証用。DDL と MERGE。整形の前後でカタログ上の定義と結果が同じになること。
+-- Real-PostgreSQL verification: DDL and MERGE; catalog definitions and results must match.
 create schema if not exists app authorization postgres;
 create extension if not exists pgcrypto with schema app;
 create sequence if not exists app.order_seq as bigint increment by 2 minvalue -10 no maxvalue start with 10 cache 5 no cycle;

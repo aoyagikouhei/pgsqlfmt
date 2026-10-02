@@ -1,13 +1,15 @@
-//! 行幅による折り返し。
+//! Wrapping by line width.
 //!
-//! 折り返せる箇所（グループ）ごとに、いまの位置から 1 行で書いたときに行幅に収まるかを測り、
-//! 収まらないときだけ折り返す。外側のグループから順に決めるので、外側を折り返したあとで
-//! 内側のグループが収まれば、内側は 1 行のまま残る。
+//! For each wrappable spot (a group), measure whether it fits the line width when written on one
+//! line from the current position, and wrap only when it does not. Outer groups are decided
+//! first, so if an inner group fits once the outer one has been wrapped, the inner one stays on
+//! one line.
 //!
-//! - 括弧の中の並び（引数・`IN (...)`・列名など）: 項目を 1 行ずつ並べて行頭カンマにし、閉じ括弧を独立した行に置く
-//! - 二項演算の連なり（`a || b || c`）: 演算子の前で改行して 1 段深くする
-//! - 窓の指定 `OVER (...)`: PARTITION BY / ORDER BY / フレームを 1 行ずつにする
-//! - RAISE / EXECUTE: `USING` / `INTO` の前で改行する
+//! - Lists in parentheses (arguments, `IN (...)`, column names, ...): one item per line with
+//!   leading commas, and the closing parenthesis on its own line
+//! - Chains of binary operations (`a || b || c`): break before the operator, one level deeper
+//! - Window specifications `OVER (...)`: PARTITION BY / ORDER BY / the frame each on its own line
+//! - RAISE / EXECUTE: break before `USING` / `INTO`
 
 use super::stmt::split_binary;
 use super::{Formatter, as_node, as_token, children};
@@ -15,8 +17,8 @@ use crate::lexer::{Token, TokenKind};
 use crate::syntax::{Element, Node, NodeKind};
 
 impl<'a> Formatter<'a> {
-    /// `render` で書いたものが、いまの位置から 1 行で行幅に収まるか。
-    /// 外側のグループを測っている途中なら、内側のグループはすべて 1 行とみなす。
+    /// Whether what `render` writes fits the line width on one line from the current position.
+    /// While an outer group is being measured, every inner group is assumed to fit on one line.
     fn fits(&mut self, render: impl FnOnce(&mut Self)) -> bool {
         if self.w.measuring() {
             return true;
@@ -31,8 +33,8 @@ impl<'a> Formatter<'a> {
     }
 
     /// `( item, item, ... )`
-    /// 項目が 1 つだけなら折り返さない（`lower(\n    name\n)` のようにしても読みやすくならない。
-    /// 中の式が長ければ、その式のほうが折り返す）
+    /// A single item is never wrapped (`lower(\n    name\n)` is no easier to read. If the inner
+    /// expression is long, that expression wraps instead)
     pub(super) fn paren_list(&mut self, node: &Node<'a>) {
         let single_item = !children(node)
             .iter()
@@ -44,7 +46,8 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `(` の後ろで改行し、項目を 1 行ずつ行頭カンマで並べて、閉じ括弧を独立した行に置く
+    /// Breaks after `(`, lists the items one per line with leading commas, and puts the closing
+    /// parenthesis on its own line
     pub(super) fn paren_list_broken(&mut self, node: &Node<'a>) {
         let base = self.w.indent();
         let elements = children(node);
@@ -67,7 +70,7 @@ impl<'a> Formatter<'a> {
         for element in &elements[open + 1..close] {
             if let Some(comma) = as_token(element).filter(|t| t.kind == TokenKind::Comma) {
                 if let Some(previous) = pending_comma.replace(comma) {
-                    // 空の項目（`f(a, , b)`）
+                    // An empty item (`f(a, , b)`)
                     self.leading_comma(previous, None, base);
                 }
                 continue;
@@ -90,13 +93,13 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 項目の間のカンマを書いて、次の項目の行に移る
+    /// Writes the comma between items and moves to the next item's line
     fn leading_comma(&mut self, comma: &Token<'a>, item: Option<&Element<'a>>, base: usize) {
         let next = item.and_then(first_token);
         self.list_separator(comma, next, base + self.indent_width, 2);
     }
 
-    /// `a op b op c`。同じ演算子の連なりを、演算子の前で改行して並べる。
+    /// `a op b op c`. Lays out a chain of the same operator, breaking before each operator.
     pub(super) fn binary_expr(&mut self, node: &Node<'a>) {
         let op = binary_op(node);
         if op.is_none() || self.fits(|f| f.inline(node)) {
@@ -108,7 +111,8 @@ impl<'a> Formatter<'a> {
         let mut operators = Vec::new();
         flatten_same_op(node, &op, &mut operands, &mut operators);
         let base = self.w.indent();
-        // 被演算子の中の折り返しは演算子の行より深くして、どの演算子の被演算子かを見分けやすくする
+        // Wrapping inside an operand goes deeper than the operator line, to make it easier to
+        // tell which operator the operand belongs to
         self.w.set_indent(base + self.indent_width);
         for (i, operand) in operands.into_iter().enumerate() {
             if i > 0 {
@@ -141,7 +145,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// RAISE / EXECUTE。収まらなければ `USING` / `INTO` の前で改行する。
+    /// RAISE / EXECUTE. If it does not fit, breaks before `USING` / `INTO`.
     pub(super) fn statement_with_options(&mut self, node: &Node<'a>) {
         if self.fits(|f| f.inline(node)) {
             self.inline(node);
@@ -167,19 +171,19 @@ fn first_token<'a>(element: &Element<'a>) -> Option<Token<'a>> {
     }
 }
 
-/// `left op right` の形なら、演算子（小文字）
+/// The operator (lower-cased) if the node has the form `left op right`
 fn binary_op(node: &Node) -> Option<String> {
     split_binary(node).map(|(_, op, _)| op.text.to_ascii_lowercase())
 }
 
-/// 左結合の `a op b op c` を、被演算子と演算子の並びにする
+/// Flattens the left-associative `a op b op c` into lists of operands and operators
 fn flatten_same_op<'n, 'a>(
     node: &'n Node<'a>,
     op: &str,
     operands: &mut Vec<&'n Node<'a>>,
     operators: &mut Vec<&'n Token<'a>>,
 ) {
-    let (left, operator, right) = split_binary(node).expect("split_binary できる");
+    let (left, operator, right) = split_binary(node).expect("split_binary succeeds");
     if left.kind == NodeKind::BinaryExpr && binary_op(left).as_deref() == Some(op) {
         flatten_same_op(left, op, operands, operators);
     } else {

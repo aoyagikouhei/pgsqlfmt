@@ -1,10 +1,11 @@
-//! 整形結果を書き出す。字下げ・トークン間の空白・コメントの配置を受け持つ。
+//! Writes out the formatted result. Handles indentation, spacing between tokens and comment
+//! placement.
 //!
-//! コメントは書き出す前に、意味のあるトークンへ結び付けておく。
-//! - 直前のトークンと同じ行にあるコメントは、そのトークンの後ろ（trailing）
-//! - それ以外は、次のトークンの前（leading）に独立した行として出す
+//! Comments are attached to significant tokens before writing begins.
+//! - A comment on the same line as the preceding token goes after that token (trailing)
+//! - Any other comment goes before the next token (leading), on its own line
 //!
-//! `RawStatement` / `Error` ノードは元のテキストのまま出すので、中のコメントは結び付けない。
+//! `RawStatement` / `Error` nodes are emitted verbatim, so comments inside them are not attached.
 
 use std::collections::HashMap;
 
@@ -15,13 +16,13 @@ use crate::syntax::{Element, Node, NodeKind};
 #[derive(Clone)]
 struct Comment<'a> {
     token: Token<'a>,
-    /// 元のテキストで、直前に改行があった（入力の先頭を含む）
+    /// Preceded by a newline in the original text (includes the start of the input)
     newline_before: bool,
-    /// 元のテキストで、直前に空行があった
+    /// Preceded by a blank line in the original text
     blank_before: bool,
-    /// 元のテキストで、直後に改行があった
+    /// Followed by a newline in the original text
     newline_after: bool,
-    /// 元のテキストで、直後に空行があった
+    /// Followed by a blank line in the original text
     blank_after: bool,
 }
 
@@ -32,7 +33,7 @@ struct Attached<'a> {
 }
 
 impl Comment<'_> {
-    /// 元のテキストで行末にあった（後ろに同じ行のトークンがない）
+    /// Was at the end of a line in the original text (no token follows on the same line)
     fn ends_line(&self) -> bool {
         self.newline_after || self.token.kind == TokenKind::LineComment
     }
@@ -41,42 +42,45 @@ impl Comment<'_> {
 pub(super) struct Writer<'a> {
     src: &'a str,
     out: String,
-    /// 意味のあるトークンの位置 → そのトークンに結び付けたコメント
+    /// Offset of a significant token → the comments attached to that token
     comments: HashMap<usize, Attached<'a>>,
-    /// 意味のあるトークンの位置 → 元のテキストで直前にあった空白
+    /// Offset of a significant token → the whitespace that preceded it in the original text
     whitespace_before: HashMap<usize, &'a str>,
-    /// 最後のトークンより後ろにあるコメント
+    /// Comments after the last token
     tail: Vec<Comment<'a>>,
-    /// 現在の行の字下げ（論理的な深さ。行頭カンマの行でも項目の位置を指す）
+    /// Indentation of the current line (the logical depth; on a leading-comma line it is still
+    /// the item's position)
     indent: usize,
     at_line_start: bool,
-    /// 次のトークンを空白なしで続ける
+    /// Write the next token without a preceding space
     glue_next: bool,
-    /// 行コメントを書いたので、次のトークンは改行してから書く
+    /// A line comment was written, so the next token must start on a new line
     must_break: bool,
-    /// 測定中なら、出力せずに幅だけを数える
+    /// While measuring, nothing is emitted; only the width is counted
     measure: Option<Measure>,
     keyword_case: KeywordCase,
-    /// 出力の最後の空白を削るとき、ここより前は削らない（COPY のデータの行末の空白は値の一部）
+    /// When trimming trailing whitespace from the output, nothing before this point is trimmed
+    /// (trailing whitespace in COPY data is part of the value)
     keep_len: usize,
-    /// 直前に書いたトークンが `:` なら、元の入力でのその終わりの位置
+    /// If the previously written token was `:`, its end offset in the original input
     after_colon: Option<usize>,
-    /// 改行の文字列。入力の最初の改行に合わせる（`\r\n` の入力は `\r\n` のまま）
+    /// Newline string. Follows the first newline in the input (`\r\n` input stays `\r\n`)
     newline: &'static str,
-    /// 入力の最後のトークンが閉じていない文字列・コメント。その中身を変えないよう、最後の空白を削らず改行も足さない
+    /// The last token of the input is an unterminated string or comment. To leave its contents
+    /// untouched, trailing whitespace is not trimmed and no newline is appended
     ends_unterminated: bool,
 }
 
-/// 1 行で書いたときに行幅に収まるかの測定
+/// Measurement of whether something fits the line width when written on one line
 struct Measure {
     column: usize,
     max_width: usize,
     fits: bool,
-    /// コメントも数えるか
+    /// Whether comments are counted too
     comments: bool,
 }
 
-/// 測定の前の状態（測定のあとに戻す）
+/// State from before a measurement (restored afterwards)
 pub(super) struct Saved {
     indent: usize,
     at_line_start: bool,
@@ -84,7 +88,7 @@ pub(super) struct Saved {
     must_break: bool,
 }
 
-/// 閉じていない文字列・引用符付きの名前・コメント（入力の終わりまで続く）
+/// An unterminated string, quoted identifier or comment (runs to the end of the input)
 fn is_unterminated(kind: TokenKind) -> bool {
     matches!(
         kind,
@@ -98,12 +102,12 @@ fn is_unterminated(kind: TokenKind) -> bool {
     )
 }
 
-/// 元のテキストのまま出すノード
+/// Nodes emitted verbatim
 pub(super) fn is_opaque(kind: NodeKind) -> bool {
     matches!(kind, NodeKind::RawStatement | NodeKind::Error)
 }
 
-/// 空白・コメントを除いた最初と最後のトークン
+/// The first and last tokens, excluding whitespace and comments
 pub(super) fn token_range<'a>(node: &Node<'a>) -> Option<(Token<'a>, Token<'a>)> {
     let mut first = None;
     let mut last = None;
@@ -153,7 +157,8 @@ impl<'a> Writer<'a> {
             match token.kind {
                 TokenKind::Whitespace => whitespace = token.text,
                 TokenKind::LineComment | TokenKind::BlockComment { .. } => {
-                    // 入力の終わりも行末とみなす（整形結果の最後には改行が付くので）
+                    // The end of the input also counts as the end of a line (the formatted
+                    // output ends with a newline)
                     let next = units.get(i + 1);
                     let newlines_after = next
                         .filter(|t| t.kind == TokenKind::Whitespace)
@@ -191,7 +196,7 @@ impl<'a> Writer<'a> {
         self.tail = leading;
     }
 
-    /// 元のテキストで、このトークン（またはその前のコメント）の直前に空行があったか
+    /// Whether a blank line preceded this token (or the comments before it) in the original text
     pub(super) fn blank_line_before(&self, token: &Token<'a>) -> bool {
         if let Some(first) = self
             .comments
@@ -205,7 +210,8 @@ impl<'a> Writer<'a> {
             .is_some_and(|ws| count_newlines(ws) >= 2)
     }
 
-    /// このトークンの前のコメントの、直前の空行を出さないようにする（ブロックの先頭の空行を消すため）
+    /// Suppresses the blank line before the comments preceding this token (to drop a blank line
+    /// at the start of a block)
     pub(super) fn drop_blank_line_before(&mut self, token: &Token<'a>) {
         if let Some(first) = self
             .comments
@@ -216,12 +222,13 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// 現在の行の字下げ
+    /// Indentation of the current line
     pub(super) fn indent(&self) -> usize {
         self.indent
     }
 
-    /// これから書く位置の桁（行頭なら 0。字下げは次のトークンを書くときに入る）
+    /// Column of the position about to be written (0 at the start of a line; the indentation is
+    /// emitted along with the next token)
     fn column(&self) -> usize {
         let line_start = self.out.rfind('\n').map_or(0, |i| i + 1);
         display_width(&self.out[line_start..])
@@ -231,17 +238,19 @@ impl<'a> Writer<'a> {
         self.measure.is_some()
     }
 
-    /// 測定中なら、測っている位置の桁
+    /// While measuring, the column of the measured position
     pub(super) fn measure_column(&self) -> Option<usize> {
         self.measure.as_ref().map(|m| m.column)
     }
 
-    /// いまの行を表す値（行の先頭の位置）。行が変わったかを見分けるのに使う
+    /// A value identifying the current line (the offset of its start). Used to detect that the
+    /// line has changed
     pub(super) fn line_id(&self) -> usize {
         self.out.rfind('\n').map_or(0, |i| i + 1)
     }
 
-    /// 測定を始める。以降の出力は捨てて、いまの位置から `max_width` に収まるかだけを調べる。
+    /// Starts a measurement. Subsequent output is discarded; it only checks whether the text fits
+    /// within `max_width` from the current position.
     pub(super) fn begin_measure(&mut self, max_width: usize) -> Saved {
         let saved = Saved {
             indent: self.indent,
@@ -249,7 +258,8 @@ impl<'a> Writer<'a> {
             glue_next: self.glue_next,
             must_break: self.must_break,
         };
-        // 行コメントの後ろなら、実際には次の行の頭から書くので、そこから測る
+        // After a line comment the text actually starts at the head of the next line, so measure
+        // from there
         if self.must_break {
             self.must_break = false;
             self.at_line_start = true;
@@ -263,21 +273,22 @@ impl<'a> Writer<'a> {
         saved
     }
 
-    /// 行の途中に続けて書いたときの幅を測る（前の空白は数え、字下げとコメントは数えない）
+    /// Measures the width when written as a continuation in the middle of a line (the preceding
+    /// space is counted; indentation and comments are not)
     pub(super) fn begin_measure_inline(&mut self) -> Saved {
         let saved = self.begin_measure(usize::MAX);
         if let Some(m) = &mut self.measure {
             m.comments = false;
         }
-        // 行頭なら字下げを書いてしまうので、行の途中にいるものとして測る
+        // At the start of a line the indentation would be emitted, so measure as if mid-line
         self.at_line_start = false;
         self.glue_next = false;
         saved
     }
 
-    /// 測定を終えて状態を戻し、1 行で収まったかを返す
+    /// Ends the measurement, restores the state and returns whether it fit on one line
     pub(super) fn end_measure(&mut self, saved: Saved) -> bool {
-        let measure = self.measure.take().expect("測定中でない");
+        let measure = self.measure.take().expect("not measuring");
         self.indent = saved.indent;
         self.at_line_start = saved.at_line_start;
         self.glue_next = saved.glue_next;
@@ -285,7 +296,7 @@ impl<'a> Writer<'a> {
         measure.fits
     }
 
-    /// 文字列を書く。測定中は幅だけを数える。
+    /// Writes a string. While measuring, only the width is counted.
     fn emit(&mut self, text: &str) {
         match &mut self.measure {
             Some(m) => {
@@ -300,7 +311,8 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// 改行して、次の行を `indent` の字下げで始める。行頭なら字下げだけ変える。
+    /// Breaks the line and starts the next one indented by `indent`. At the start of a line, only
+    /// the indentation is changed.
     pub(super) fn newline(&mut self, indent: usize) {
         if !self.at_line_start {
             match &mut self.measure {
@@ -314,15 +326,18 @@ impl<'a> Writer<'a> {
         self.glue_next = false;
     }
 
-    /// 改行せずに、現在の行の字下げ（以降の複数行の式や折り返しの基準）を変える
+    /// Changes the current line's indentation (the base for subsequent multi-line expressions and
+    /// wrapping) without breaking the line
     pub(super) fn set_indent(&mut self, indent: usize) {
         self.indent = indent;
     }
 
-    /// `token` の後ろの行末コメントを、いまの位置に書く（行頭カンマにする前の行末に残すため）。
-    /// いまの行がすでに行コメントで終わっているとき（書くと行コメントに飲み込まれる）と、
-    /// まだ何も書いていない行のときは動かさない。
-    /// 測定中も動かさない（取り出してしまうと、本番で書くときにコメントがなくなる）。
+    /// Writes the trailing comments of `token` at the current position (to keep them at the end
+    /// of the line before the comma is moved to the start of the next line).
+    /// They are left in place when the current line already ends with a line comment (writing
+    /// them would swallow them into it) and when nothing has been written on the line yet.
+    /// They are also left in place while measuring (taking them out would lose the comments when
+    /// writing for real).
     pub(super) fn flush_trailing_comments(&mut self, token: &Token<'a>) {
         if self.must_break || self.at_line_start || self.measuring() {
             return;
@@ -339,9 +354,9 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// `from` の前の、独立した行にあるコメントを `to` の前に移す
-    /// （行頭カンマの項目の前のコメントを、カンマより前に出すため）。
-    /// `from` と同じ行にあるブロックコメント（`/* x */ b`）は `from` に残す。
+    /// Moves the comments on their own lines before `from` to before `to`
+    /// (to emit the comments before a leading-comma item ahead of the comma).
+    /// A block comment on the same line as `from` (`/* x */ b`) stays with `from`.
     pub(super) fn move_leading_comments(&mut self, from: &Token<'a>, to: &Token<'a>) {
         let Some(attached) = self.comments.get_mut(&from.offset) else {
             return;
@@ -362,7 +377,7 @@ impl<'a> Writer<'a> {
             .extend(moved);
     }
 
-    /// 空行を入れる（出力の先頭では何もしない）
+    /// Inserts a blank line (does nothing at the start of the output)
     pub(super) fn blank_line(&mut self) {
         if let Some(m) = &mut self.measure {
             m.fits = false;
@@ -379,12 +394,12 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// 次のトークンを空白なしで続ける
+    /// Write the next token without a preceding space
     pub(super) fn glue(&mut self) {
         self.glue_next = true;
     }
 
-    /// ここまでの出力を、最後の空白を削る対象から外す
+    /// Excludes the output so far from trailing-whitespace trimming
     pub(super) fn keep_output(&mut self) {
         self.keep_len = self.out.len();
     }
@@ -397,7 +412,7 @@ impl<'a> Writer<'a> {
         self.token_as(token, &text, 0);
     }
 
-    /// キーワードを設定どおりの大文字・小文字にする
+    /// Applies the configured case to a keyword
     pub(super) fn keyword_text(&self, text: &str) -> String {
         match self.keyword_case {
             KeywordCase::Upper => text.to_ascii_uppercase(),
@@ -406,12 +421,12 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// 字下げより `outdent` だけ左から書き始める（行頭カンマ用）
+    /// Starts writing `outdent` columns to the left of the indentation (for leading commas)
     pub(super) fn token_outdented(&mut self, token: &Token<'a>, outdent: usize) {
         self.token_as(token, token.text, outdent);
     }
 
-    /// トークンを `text` として書く。前後のコメントも書く。
+    /// Writes the token as `text`, along with its leading and trailing comments.
     pub(super) fn token_as(&mut self, token: &Token<'a>, text: &str, outdent: usize) {
         let attached = if self.measure.as_ref().is_some_and(|m| !m.comments) {
             Attached::default()
@@ -421,7 +436,8 @@ impl<'a> Writer<'a> {
         for comment in attached.leading {
             self.leading_comment(&comment);
         }
-        // `a[2: n]` のように元の入力で `:` の後ろに空白があれば残す。詰めると psql が `:n` を変数として置き換える
+        // Keep a space after `:` when the original input had one, as in `a[2: n]`. Closing the
+        // gap would make psql substitute `:n` as a variable
         let forms_variable = text.bytes().next().is_some_and(|b| {
             b.is_ascii_alphabetic() || b == b'_' || b >= 0x80 || b == b'\'' || b == b'"'
         });
@@ -436,7 +452,7 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// `RawStatement` / `Error` を元のテキストのまま書く
+    /// Writes a `RawStatement` / `Error` verbatim
     pub(super) fn raw(&mut self, node: &Node<'a>) {
         let Some((first, last)) = token_range(node) else {
             return;
@@ -457,7 +473,8 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// トークンに結び付けたコメントを取り出す。測定中は取り出さずに写しを返す。
+    /// Takes the comments attached to a token. While measuring, they are left in place and a
+    /// copy is returned.
     fn take_comments(&mut self, token: &Token<'a>) -> Attached<'a> {
         if self.measuring() {
             self.comments
@@ -486,8 +503,8 @@ impl<'a> Writer<'a> {
     }
 
     fn leading_comment(&mut self, comment: &Comment<'a>) {
-        // 元のテキストで前のコメントと同じ行にあったか、次のトークンと同じ行にあったブロックコメントは、
-        // 行の途中でもそのまま続けて書く
+        // A comment that was on the same line as the previous comment in the original text, or a
+        // block comment that was on the same line as the next token, continues mid-line as is
         let inline = !comment.newline_before
             || (comment.token.kind != TokenKind::LineComment && !comment.newline_after);
         if comment.blank_before {
@@ -499,7 +516,8 @@ impl<'a> Writer<'a> {
         if self.at_line_start {
             self.word(comment.token.text, comment.token.kind, 0);
         } else {
-            // 行の途中のコメントは、直前のトークンによらず空白を 1 つ空ける（行末のコメントと同じ形にする）
+            // A comment mid-line gets exactly one space before it regardless of the previous
+            // token (the same shape as a trailing comment)
             self.emit(" ");
             self.emit(comment.token.text);
             self.glue_next = false;
@@ -532,7 +550,8 @@ impl<'a> Writer<'a> {
             }
             self.word(comment.token.text, comment.token.kind, 0);
         }
-        // 閉じていない文字列・コメントは入力の終わりまで続くので、必ず出力の最後にある
+        // An unterminated string or comment runs to the end of the input, so it is always at the
+        // end of the output
         if self.ends_unterminated {
             return self.out;
         }
@@ -545,7 +564,8 @@ impl<'a> Writer<'a> {
     }
 }
 
-/// 木のトークンを順に並べる。`RawStatement` / `Error` は最初と最後のトークンだけにする。
+/// Lists the tokens of the tree in order. `RawStatement` / `Error` contribute only their first
+/// and last tokens.
 fn flatten<'a>(node: &Node<'a>, out: &mut Vec<Token<'a>>) {
     for child in &node.children {
         match child {
@@ -563,7 +583,7 @@ fn flatten<'a>(node: &Node<'a>, out: &mut Vec<Token<'a>>) {
     }
 }
 
-/// 表示の幅。全角の文字（CJK など）は 2 桁と数える。
+/// Display width. Full-width characters (CJK etc.) count as 2 columns.
 pub(super) fn display_width(text: &str) -> usize {
     text.chars()
         .map(|c| match c as u32 {
@@ -584,7 +604,8 @@ pub(super) fn display_width(text: &str) -> usize {
         .sum()
 }
 
-/// 入力の最初の改行が `\r\n` なら `\r\n`、それ以外（改行がない場合を含む）は `\n`
+/// `\r\n` if the first newline in the input is `\r\n`; otherwise `\n` (including when there is no
+/// newline at all)
 fn newline_style(src: &str) -> &'static str {
     match src.find('\n') {
         Some(i) if src.as_bytes()[..i].ends_with(b"\r") => "\r\n",

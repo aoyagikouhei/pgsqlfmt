@@ -3,7 +3,7 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/postgres/plpgsql.sql
 ---
--- 実機検証用。関数を作って呼び出し、整形の前後で結果と NOTICE が同じになること。
+-- Real-PostgreSQL verification: create and call functions; results and NOTICEs must match.
 CREATE FUNCTION classify(p_amount numeric, p_label text DEFAULT 'x')
 RETURNS text
 LANGUAGE plpgsql

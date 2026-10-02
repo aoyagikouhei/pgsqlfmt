@@ -3,7 +3,7 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/postgres/ddl.sql
 ---
--- 実機検証用。DDL と MERGE。整形の前後でカタログ上の定義と結果が同じになること。
+-- Real-PostgreSQL verification: DDL and MERGE; catalog definitions and results must match.
 CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION postgres;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA app;
 CREATE SEQUENCE IF NOT EXISTS app.order_seq

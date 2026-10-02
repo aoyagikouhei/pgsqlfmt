@@ -1,7 +1,7 @@
-# `v0.1.0` のようなタグを push すると、Linux（amd64 / arm64）向けのバイナリを作って GitHub Releases に載せる。
-# musl で静的にリンクするので、glibc の版によらず（Alpine を含む）どの Linux でも動く。
-# アセットの名前に版を入れないので、`releases/latest/download/<名前>` で最新版を取れる。
-# 手動で実行したとき（workflow_dispatch）は、ビルドと動作の確認までで止め、リリースは作らない。
+# When a tag such as `v0.1.0` is pushed, build Linux (amd64 / arm64) binaries and upload them to GitHub Releases.
+# They are statically linked with musl, so they run on any Linux (including Alpine) regardless of the glibc version.
+# The asset names do not include the version, so the latest version can be fetched from `releases/latest/download/<name>`.
+# When run manually (workflow_dispatch), it stops after the build and smoke test and does not create a release.
 name: Release
 
 on:
@@ -25,20 +25,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      # タグと Cargo.toml の版がずれたまま公開しないようにする
+      # Never publish with a tag that does not match the version in Cargo.toml
       - name: Check version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
-            echo "タグ ${GITHUB_REF_NAME} と Cargo.toml の版 ${version} が一致しません"
+            echo "tag ${GITHUB_REF_NAME} does not match version ${version} in Cargo.toml"
             exit 1
           fi
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends musl-tools file
-          # rustup が入っていないランナーイメージでも動くようにする
+          # Work on runner images that do not have rustup installed
           if ! command -v rustup > /dev/null; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
@@ -46,7 +46,7 @@ jobs:
           fi
           rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
           rustup default stable
-      # PostgreSQL での実機検証は main の CI で流している（ここでは PGHOST がないので飛ばされる）
+      # The verification against a real PostgreSQL runs in the CI on main (it is skipped here because PGHOST is not set)
       - name: Test
         run: cargo test --locked --release
       - name: Build
@@ -87,7 +87,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      # 同じタグで流し直したときは、作成済みのリリースのアセットを差し替える
+      # When re-run for the same tag, replace the assets of the existing release
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

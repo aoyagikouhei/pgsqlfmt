@@ -3,7 +3,7 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/postgres/queries.sql
 ---
--- 実機検証用。tests/postgres/schema.sql の上で、すべての文がエラーなく実行できること。
+-- Real-PostgreSQL verification: every statement must run error-free on tests/postgres/schema.sql.
 WITH totals AS (
     SELECT
         o.customer_id
@@ -205,19 +205,19 @@ SELECT
 FROM stock
 ORDER BY sku;
 
--- 改行を挟んだ文字列はつながる
+-- strings separated by a newline are concatenated
 SELECT
     'con'
         'tinued' AS s
   , 1;
 
--- 抽出方法は入力のまま、TABLESAMPLE と REPEATABLE はキーワード
+-- sampling method stays verbatim; TABLESAMPLE and REPEATABLE are keywords
 SELECT c.id
 FROM customers AS c TABLESAMPLE bernoulli (100) REPEATABLE (1)
 WHERE c.id > 0
 ORDER BY c.id;
 
--- ユーティリティ文（外側のトランザクションを壊す BEGIN / COMMIT は入れない）
+-- utility statements (no BEGIN / COMMIT, which would break the outer transaction)
 SET search_path = public, pg_catalog;
 SET LOCAL work_mem TO '64MB';
 SHOW work_mem;

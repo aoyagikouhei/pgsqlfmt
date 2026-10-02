@@ -1,5 +1,6 @@
-# push と PR ごとに、手元の `make check` と同じ検査（PostgreSQL での実機検証を含む）を Docker Compose で流す。
-# あわせて配布用イメージ（pre-commit のフックが使う）をビルドし、実際に整形できるかを確かめる。
+# On every push and PR, run the same checks as the local `make check` (including the verification
+# against a real PostgreSQL) in Docker Compose.
+# Also build the distribution image (used by the pre-commit hooks) and confirm that it actually formats.
 name: CI
 
 on:
@@ -21,7 +22,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      # 開発コンテナのユーザーをランナーのユーザーと合わせる（作業ディレクトリをマウントして書き込むため）
+      # Match the dev container's user to the runner's user (the working directory is mounted and written to)
       - name: Set up .env
         run: printf 'LOCAL_UID=%s\nLOCAL_GID=%s\n' "$(id -u)" "$(id -g)" > .env
       - name: Build dev image
@@ -44,6 +45,6 @@ jobs:
             printf 'unexpected output:\n%s\n' "$out"
             exit 1
           fi
-          # 整形済みのファイルを --check に通す
+          # Run --check on an already formatted file
           printf '%s\n' "$expected" > formatted.sql
           docker run --rm -v "$PWD:/src" pgsqlfmt --check formatted.sql

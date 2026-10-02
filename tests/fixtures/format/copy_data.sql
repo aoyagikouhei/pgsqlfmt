@@ -1,4 +1,4 @@
--- COPY のデータは入力のまま残し、後ろの文は整形する
+-- COPY data stays verbatim; later statements are formatted
 copy accounts (id, owner) from stdin;
 1	it's
 2	a;b

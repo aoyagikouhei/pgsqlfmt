@@ -1,14 +1,14 @@
-//! `CREATE FUNCTION` / `CREATE PROCEDURE` / `DO` / `CALL`。
+//! `CREATE FUNCTION` / `CREATE PROCEDURE` / `DO` / `CALL`.
 //!
-//! ドル引用符の本体は、`LANGUAGE plpgsql` なら PL/pgSQL として、`LANGUAGE sql` なら SQL の文の並びとして、
-//! 中身を字句解析し直して別のパーサーで解析し、`FunctionBody` ノードとして木に埋め込む。
-//! それ以外の言語の本体は、元のトークンのまま残す。
+//! A dollar-quoted body is re-lexed and parsed by a separate parser, as PL/pgSQL for
+//! `LANGUAGE plpgsql` and as a list of SQL statements for `LANGUAGE sql`, and embedded in the tree
+//! as a `FunctionBody` node. Bodies in any other language are kept as their original tokens.
 
 use super::Parser;
 use crate::lexer::{Token, TokenKind, tokenize_with_offset};
 use crate::syntax::{Element, Node, NodeKind};
 
-/// 関数のオプションの始まり
+/// Words that start a function option
 const OPTION_STARTS: &[&str] = &[
     "language",
     "as",
@@ -33,7 +33,7 @@ const OPTION_STARTS: &[&str] = &[
     "transform",
 ];
 
-/// オプションの値のうちキーワードとして扱う語
+/// Option values that are treated as keywords
 const OPTION_WORDS: &[&str] = &[
     "null",
     "on",
@@ -52,7 +52,7 @@ const OPTION_WORDS: &[&str] = &[
     "security",
 ];
 
-/// 2 語以上の型名の最初の語と、その次に続く語
+/// The first word of a multi-word type name and the word that follows it
 const MULTIWORD_TYPES: &[(&str, &str)] = &[
     ("double", "precision"),
     ("character", "varying"),
@@ -98,7 +98,7 @@ impl<'a> Parser<'a> {
 
     /// `CREATE [OR REPLACE] {FUNCTION | PROCEDURE} name (params) [RETURNS ...] option ...`
     pub(super) fn create_function_stmt(&mut self) {
-        // 本体の前に LANGUAGE が来るとは限らないので、先に探しておく
+        // LANGUAGE does not necessarily come before the body, so find it first
         let language = self.find_language().unwrap_or(BodyLanguage::Sql);
         self.start_node(NodeKind::CreateFunctionStmt);
         self.bump_kw();
@@ -119,7 +119,7 @@ impl<'a> Parser<'a> {
                 if !self.at_statement_end() {
                     self.body_string(language);
                 }
-                // C 言語の関数の `AS 'obj_file', 'link_symbol'`
+                // `AS 'obj_file', 'link_symbol'` of a C-language function
                 if self.eat(TokenKind::Comma) && !self.at_statement_end() {
                     self.bump();
                 }
@@ -127,7 +127,7 @@ impl<'a> Parser<'a> {
             } else if self.at_kw("begin") && self.nth_kw(1, "atomic") {
                 self.atomic_body();
             } else if self.at_kw("return") {
-                // SQL 標準の本体 `RETURN expr`
+                // The SQL-standard body `RETURN expr`
                 self.start_node(NodeKind::FunctionOption);
                 self.bump_kw();
                 self.expr();
@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    /// 文の終わりまでの `LANGUAGE name` を探す
+    /// Find `LANGUAGE name` before the end of the statement
     fn find_language(&self) -> Option<BodyLanguage> {
         let mut n = 0;
         while let Some(token) = self.nth(n) {
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    /// `(name type, ...)`。`RETURNS TABLE (...)` の列にも使う。
+    /// `(name type, ...)`. Also used for the columns of `RETURNS TABLE (...)`.
     fn param_list(&mut self) {
         self.start_node(NodeKind::ParamList);
         self.bump();
@@ -193,7 +193,8 @@ impl<'a> Parser<'a> {
             .is_some_and(|t| matches!(t.kind, TokenKind::Ident | TokenKind::QuotedIdent { .. }))
     }
 
-    /// 引数の先頭の名前が、型名ではなく引数名か。次に型名が続くなら引数名とみなす。
+    /// Whether the leading name of a parameter is a parameter name rather than a type name. It is
+    /// taken as a parameter name when a type name follows.
     fn at_param_name(&self) -> bool {
         let Some(current) = self.current().filter(|_| self.at_name()) else {
             return false;
@@ -221,7 +222,8 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    /// `IMMUTABLE` / `SECURITY DEFINER` / `SET search_path = ...` などのオプション。次のオプションの手前まで。
+    /// An option such as `IMMUTABLE` / `SECURITY DEFINER` / `SET search_path = ...`, up to the next
+    /// option.
     fn function_option(&mut self) {
         self.start_node(NodeKind::FunctionOption);
         let two_words = self.at_kw("not") || self.at_kw("external");
@@ -261,7 +263,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    /// `DO [LANGUAGE name] body`（本体の後ろに LANGUAGE を書いてもよい）
+    /// `DO [LANGUAGE name] body` (LANGUAGE may also be written after the body)
     pub(super) fn do_stmt(&mut self) {
         let language = self.find_language().unwrap_or(BodyLanguage::PlPgSql);
         self.start_node(NodeKind::DoStmt);
@@ -293,7 +295,8 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    /// 関数本体の文字列。閉じたドル引用符で、言語が PL/pgSQL か SQL なら中身を解析して埋め込む。
+    /// The function body string. If it is a terminated dollar-quoted string and the language is
+    /// PL/pgSQL or SQL, its contents are parsed and embedded.
     fn body_string(&mut self, language: BodyLanguage) {
         let Some(token) = self.current() else {
             return;
@@ -311,10 +314,10 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// `$tag$ ... $tag$` を、区切りと、別のパーサーで解析した中身に分ける
+/// Split `$tag$ ... $tag$` into the delimiters and the contents parsed by a separate parser
 fn parse_dollar_body<'a>(token: Token<'a>, language: BodyLanguage) -> Node<'a> {
     let text = token.text;
-    let delimiter_len = text[1..].find('$').expect("ドル引用符の区切り") + 2;
+    let delimiter_len = text[1..].find('$').expect("dollar-quote delimiter") + 2;
     let open = Token {
         kind: TokenKind::DollarDelimiter,
         text: &text[..delimiter_len],

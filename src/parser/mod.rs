@@ -1,11 +1,12 @@
-//! 手書きの再帰下降パーサー。
+//! Hand-written recursive-descent parser.
 //!
-//! トークン列からロスレスな構文木（[`crate::syntax::Node`]）を作る。
-//! 不正な入力や未対応の構文でも失敗せず、解釈できない部分は
-//! `Error` / `RawStatement` ノードとして元のトークンのまま木に残す。
+//! Builds a lossless syntax tree ([`crate::syntax::Node`]) from the token stream.
+//! It never fails on invalid input or unsupported syntax: whatever cannot be parsed stays in
+//! the tree as `Error` / `RawStatement` nodes holding the original tokens verbatim.
 //!
-//! 空白・コメントは、次の意味のあるトークンを取り込む時点で開いているノードに入る。
-//! ノードを開くときは先に空白・コメントを親に流すので、ノードは必ず意味のあるトークンから始まる。
+//! Whitespace and comments (trivia) go into whichever node is open at the moment the next
+//! significant token is consumed. Opening a node first flushes trivia into the parent, so a
+//! node always starts with a significant token.
 
 mod ddl;
 mod dml;
@@ -29,7 +30,7 @@ pub fn parse(src: &str) -> Node<'_> {
     p.finish()
 }
 
-/// `start_node_at` で、あとから包むノードの開始位置
+/// The start position of a node that `start_node_at` wraps around later
 #[derive(Clone, Copy)]
 struct Checkpoint {
     depth: usize,
@@ -38,13 +39,13 @@ struct Checkpoint {
 
 struct Parser<'a> {
     tokens: Vec<Token<'a>>,
-    /// 次に木へ取り込むトークンの位置（空白・コメントを指すこともある）
+    /// Position of the next token to consume into the tree (may point at trivia)
     pos: usize,
-    /// 開いているノードの種類と、そこまでに取り込んだ子
+    /// The open nodes: each one's kind and the children consumed so far
     stack: Vec<(NodeKind, Vec<Element<'a>>)>,
-    /// 無限ループの検出用。最後にトークンを取り込んでからの先読みの回数
+    /// For infinite-loop detection: the number of lookaheads since a token was last consumed
     steps: Cell<u32>,
-    /// 句の終わりとして扱う追加のキーワード（`FOR r IN SELECT ... LOOP` の `loop` など）
+    /// Extra keywords treated as the end of a clause (e.g. `loop` in `FOR r IN SELECT ... LOOP`)
     stops: Vec<&'static str>,
 }
 
@@ -59,7 +60,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `stops` を句の終わりのキーワードに加えて `f` を実行する
+    /// Runs `f` with `stops` added to the keywords that end a clause
     fn with_stops<R>(&mut self, stops: &[&'static str], f: impl FnOnce(&mut Self) -> R) -> R {
         let saved = self.stops.len();
         self.stops.extend_from_slice(stops);
@@ -76,18 +77,19 @@ impl<'a> Parser<'a> {
         while self.pos < self.tokens.len() {
             self.push_token();
         }
-        assert_eq!(self.stack.len(), 1, "閉じていないノードがある");
+        assert_eq!(self.stack.len(), 1, "there is an unclosed node");
         let (kind, children) = self.stack.pop().unwrap();
         Node { kind, children }
     }
 
-    // ---- 先読み ----
+    // ---- Lookahead ----
 
-    /// 空白・コメントを飛ばした n 番目のトークン
+    /// The n-th token, skipping trivia
     fn nth(&self, n: usize) -> Option<Token<'a>> {
-        // 1 トークンあたりの先読みは数十回なので、進まないまま 1,000 万回に達したら無限ループ
+        // A token takes a few dozen lookaheads at most, so reaching 10 million without advancing
+        // means an infinite loop
         let steps = self.steps.get() + 1;
-        assert!(steps < 10_000_000, "パーサーが先に進んでいない");
+        assert!(steps < 10_000_000, "the parser is not advancing");
         self.steps.set(steps);
         self.tokens[self.pos..]
             .iter()
@@ -112,7 +114,7 @@ impl<'a> Parser<'a> {
         self.current().is_none()
     }
 
-    /// n 番目のトークンがキーワード `kw`（小文字で渡す）か
+    /// Whether the n-th token is the keyword `kw` (passed in lowercase)
     fn nth_kw(&self, n: usize, kw: &str) -> bool {
         self.nth(n)
             .is_some_and(|t| t.kind == TokenKind::Ident && t.text.eq_ignore_ascii_case(kw))
@@ -135,14 +137,15 @@ impl<'a> Parser<'a> {
         self.at_eof() || self.at(TokenKind::Semicolon)
     }
 
-    // ---- 木の組み立て ----
+    // ---- Building the tree ----
 
     fn push_token(&mut self) {
         let token = self.tokens[self.pos];
         self.push_token_as(token);
     }
 
-    /// 現在位置のトークンを `token` として現在のノードへ取り込み、次へ進む
+    /// Consumes the token at the current position into the current node as `token`, and
+    /// advances
     fn push_token_as(&mut self, token: Token<'a>) {
         self.pos += 1;
         self.steps.set(0);
@@ -155,10 +158,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// 次の意味のあるトークンを、手前の空白・コメントとともに現在のノードへ取り込む
+    /// Consumes the next significant token, with the trivia before it, into the current node
     fn bump(&mut self) {
         self.eat_trivia();
-        assert!(self.pos < self.tokens.len(), "入力の終わりで bump した");
+        assert!(self.pos < self.tokens.len(), "bump at end of input");
         self.push_token();
     }
 
@@ -170,10 +173,10 @@ impl<'a> Parser<'a> {
         found
     }
 
-    /// `bump` と同じだが、識別子をキーワードとして取り込む（整形で大文字にする対象になる）
+    /// Same as `bump`, but consumes an identifier as a keyword (which formatting uppercases)
     fn bump_kw(&mut self) {
         self.eat_trivia();
-        assert!(self.pos < self.tokens.len(), "入力の終わりで bump した");
+        assert!(self.pos < self.tokens.len(), "bump at end of input");
         let mut token = self.tokens[self.pos];
         if token.kind == TokenKind::Ident {
             token.kind = TokenKind::Keyword;
@@ -181,7 +184,7 @@ impl<'a> Parser<'a> {
         self.push_token_as(token);
     }
 
-    /// キーワード `kw` があればキーワードとして取り込む
+    /// Consumes the keyword `kw` as a keyword, if present
     fn eat_kw(&mut self, kw: &str) -> bool {
         let found = self.at_kw(kw);
         if found {
@@ -190,7 +193,8 @@ impl<'a> Parser<'a> {
         found
     }
 
-    /// `eat_kw` と同じだが、名前の一部（型名の `precision` など）として取り込む
+    /// Same as `eat_kw`, but consumes the word as part of a name (e.g. `precision` in a type
+    /// name)
     fn eat_word(&mut self, word: &str) -> bool {
         let found = self.at_kw(word);
         if found {
@@ -208,7 +212,7 @@ impl<'a> Parser<'a> {
         let (kind, children) = self.stack.pop().unwrap();
         self.stack
             .last_mut()
-            .expect("Root を閉じようとした")
+            .expect("attempted to close Root")
             .1
             .push(Element::Node(Node { kind, children }));
     }
@@ -221,22 +225,27 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// checkpoint 以降に取り込んだ子を、新しいノードの子として開き直す
+    /// Reopens the children consumed since the checkpoint as the children of a new node
     fn start_node_at(&mut self, cp: Checkpoint, kind: NodeKind) {
-        assert_eq!(cp.depth, self.stack.len(), "checkpoint と深さが違う");
+        assert_eq!(
+            cp.depth,
+            self.stack.len(),
+            "depth differs from the checkpoint"
+        );
         let children = self.stack.last_mut().unwrap().1.split_off(cp.index);
         self.stack.push((kind, children));
     }
 
-    /// checkpoint 以降に取り込んだ子を 1 つのノードにまとめる
+    /// Wraps the children consumed since the checkpoint into a single node
     fn wrap(&mut self, cp: Checkpoint, kind: NodeKind) {
         self.start_node_at(cp, kind);
         self.finish_node();
     }
 
-    // ---- エラーからの回復 ----
+    // ---- Error recovery ----
 
-    /// 括弧の中身ごとトークンを取り込む。閉じ括弧がなければ文の終わりで止まる。
+    /// Consumes a token, or a bracketed group with its contents. Stops at the end of the
+    /// statement if the closing bracket is missing.
     fn bump_balanced(&mut self) {
         let mut depth = 0usize;
         loop {
@@ -252,7 +261,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// 閉じ括弧・文の終わり・`stop` のどれかに来るまでを `Error` ノードにする
+    /// Wraps everything up to a closing bracket, the end of the statement, or `stop` in an
+    /// `Error` node
     fn error_until(&mut self, stop: impl Fn(&Self) -> bool) {
         let at_stop = |p: &Self| {
             p.at_statement_end() || p.at(TokenKind::RParen) || p.at(TokenKind::RBracket) || stop(p)
@@ -267,14 +277,15 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    /// 次のトークン 1 つ（括弧なら中身ごと）を `Error` ノードにする
+    /// Wraps the next single token (or a bracketed group with its contents) in an `Error` node
     fn error_token(&mut self) {
         self.start_node(NodeKind::Error);
         self.bump_balanced();
         self.finish_node();
     }
 
-    /// `kind` があれば取り込み、なければ閉じ括弧・文の終わりまでを `Error` にしてから探す
+    /// Consumes `kind` if present; otherwise turns everything up to a closing bracket or the end
+    /// of the statement into an `Error` node first, then looks for it
     fn expect_closing(&mut self, kind: TokenKind) {
         if !self.at(kind) {
             self.error_until(|p| p.at(kind));
@@ -282,7 +293,8 @@ impl<'a> Parser<'a> {
         self.eat(kind);
     }
 
-    /// カンマ区切りの並び。`item` が読めなかった部分は次のカンマか終わりまでを `Error` にする。
+    /// A comma-separated list. Where `item` cannot be parsed, everything up to the next comma or
+    /// the end becomes an `Error` node.
     fn comma_list(&mut self, is_end: fn(&Self) -> bool, item: fn(&mut Self) -> bool) {
         let at_end = |p: &Self| {
             p.at_statement_end()
@@ -303,16 +315,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // ---- 文 ----
+    // ---- Statements ----
 
-    /// `;` で区切られた文の並び（入力全体、または `LANGUAGE sql` の関数本体）
+    /// Statements separated by `;` (the whole input, or the body of a `LANGUAGE sql` function)
     fn statements(&mut self) {
         while let Some(token) = self.current() {
             if token.kind == TokenKind::Semicolon {
                 self.bump();
                 continue;
             }
-            // COPY のデータはセミコロンで終わらないので、それだけで 1 つの文にする
+            // COPY data does not end with a semicolon, so it forms a statement on its own
             if token.kind == TokenKind::CopyData {
                 self.start_node(NodeKind::RawStatement);
                 self.bump();

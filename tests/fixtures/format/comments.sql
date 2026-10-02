@@ -1,19 +1,19 @@
-/* ファイル先頭のブロックコメント */
--- 行コメント
+/* block comment at top of file */
+-- line comment
 select
-  a, -- a の説明
-  b /* b の説明 */,
-  -- c の前
+  a, -- about a
+  b /* about b */,
+  -- before c
   c
-from t1 /* 表 */
-join t2 on t1.id = t2.id -- 結合条件
-where -- 条件
+from t1 /* table */
+join t2 on t1.id = t2.id -- join condition
+where -- condition
   x = 1
 
-  -- 空行のあとのコメント
+  -- comment after a blank line
   and y = 2;
 
 
--- 文と文の間
+-- between statements
 
-select 1 -- 最後
+select 1 -- last

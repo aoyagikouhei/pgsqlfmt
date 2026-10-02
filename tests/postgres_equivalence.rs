@@ -1,16 +1,21 @@
-//! PostgreSQL で、整形の前と後の SQL が同じ意味になることを確かめる。
+//! Verifies against a real PostgreSQL that the SQL means the same before and after formatting.
 //!
-//! フィクスチャの文を 1 つずつ、`tests/postgres/schema.sql` を流したトランザクションの中で実行し、
-//! psql の出力を整形の前後で比べる。最後は ROLLBACK するので DB には何も残らない。
-//! - SELECT / INSERT / UPDATE / DELETE: `EXPLAIN (VERBOSE, COSTS OFF, GENERIC_PLAN)` の実行計画と、実行した結果
-//! - CREATE FUNCTION / PROCEDURE: 作成できるかと、本体のテキスト以外のカタログ上の定義
-//!   （PL/pgSQL の本体は作成時に構文が検査され、呼び出しの結果は後続の文で比べる）
-//! - それ以外（DO / CALL など）: 実行した結果（NOTICE やエラーを含む）
-//! - 最後に public スキーマのカタログ（列・型・既定値・制約・インデックス・ビューの定義）を比べる。
-//!   トリガー・シーケンス・型・スキーマ・拡張の定義、権限（GRANT / REVOKE）、コメント（COMMENT ON）も比べる。DDL の意味の違いは実行結果（`CREATE TABLE` など）には出ないので、ここで確かめる
+//! Each fixture statement runs, one at a time, inside a transaction that has loaded
+//! `tests/postgres/schema.sql`, and the psql output is compared before and after formatting.
+//! The transaction ends with ROLLBACK, so nothing is left in the database.
+//! - SELECT / INSERT / UPDATE / DELETE: the `EXPLAIN (VERBOSE, COSTS OFF, GENERIC_PLAN)` plan and
+//!   the result of running it
+//! - CREATE FUNCTION / PROCEDURE: whether it can be created, and its catalog definition other than
+//!   the body text (a PL/pgSQL body is syntax-checked at creation; the results of calling it are
+//!   compared by later statements)
+//! - Anything else (DO / CALL etc.): the result of running it (including NOTICEs and errors)
+//! - Finally the catalog of the public schema (columns, types, defaults, constraints, indexes and
+//!   view definitions) is compared, along with triggers, sequences, types, schemas, extensions,
+//!   privileges (GRANT / REVOKE) and comments (COMMENT ON). A change in the meaning of DDL does not
+//!   show in the result of running it (`CREATE TABLE` etc.), so it is checked here
 //!
-//! psql は `ON_ERROR_ROLLBACK=on` で動かすので、エラーになった文があっても続きの文を比べられる。
-//! 環境変数 `PGHOST` がなければ（dev コンテナの外では）このテストは何もしない。
+//! psql runs with `ON_ERROR_ROLLBACK=on`, so the statements after a failing one are still compared.
+//! Without the `PGHOST` environment variable (outside the dev container) this test does nothing.
 
 use std::io::Write;
 use std::path::Path;
@@ -23,7 +28,7 @@ use pgsqlfmt::{CommaStyle, FormatOptions, KeywordCase, format_with_options};
 
 fn postgres_available() -> bool {
     if std::env::var_os("PGHOST").is_none() {
-        eprintln!("PGHOST がないので PostgreSQL での検証を飛ばします");
+        eprintln!("PGHOST is not set; skipping verification against PostgreSQL");
         return false;
     }
     true
@@ -49,7 +54,8 @@ fn fixtures(sub: Option<&str>) -> Vec<(String, String)> {
     out
 }
 
-/// CREATE FUNCTION の関数名（`schema.name` なら両方）。引用符なしの名前は小文字にする。
+/// The function name of a CREATE FUNCTION (both parts for `schema.name`). Unquoted names are
+/// lowercased.
 fn function_name(stmt: &Node) -> (String, String) {
     let mut parts = Vec::new();
     let mut after_keyword = false;
@@ -79,7 +85,7 @@ fn quote_literal(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
 
-/// フィクスチャを検証用の psql スクリプトにする
+/// Turns a fixture into a psql script for verification
 fn script(src: &str) -> String {
     let root = parse(src);
     let mut out = String::from("BEGIN;\n");
@@ -92,7 +98,7 @@ fn script(src: &str) -> String {
         };
         n += 1;
         let text = stmt.text();
-        out.push_str(&format!("\\echo '--- 文 {n}'\n"));
+        out.push_str(&format!("\\echo '--- statement {n}'\n"));
         match stmt.kind {
             NodeKind::SelectStmt
             | NodeKind::InsertStmt
@@ -124,9 +130,10 @@ fn script(src: &str) -> String {
     out
 }
 
-/// public スキーマの定義。いずれも PostgreSQL が正規化した形で出すので、書き方の違いは出ない
+/// The definitions in the public schema. PostgreSQL prints them all in normalized form, so
+/// differences in spelling do not show
 const CATALOG_SNAPSHOT: &str = "\
-\\echo '--- カタログ'
+\\echo '--- catalog'
 SELECT c.relname, c.relkind, c.relpersistence, a.attnum, a.attname, format_type(a.atttypid, a.atttypmod),
        a.attnotnull, pg_get_expr(d.adbin, d.adrelid), a.attidentity, a.attgenerated, co.collname
 FROM pg_class c
@@ -175,7 +182,7 @@ SELECT pg_describe_object(classoid, objoid, objsubid), description
 FROM pg_description WHERE objoid >= 16384 ORDER BY 1;
 ";
 
-/// psql でスクリプトを流し、出力（エラーや NOTICE を含む）を返す
+/// Runs the script through psql and returns the output (including errors and NOTICEs)
 fn run_psql(script: &str) -> String {
     let mut child = Command::new("sh")
         .args([
@@ -185,7 +192,7 @@ fn run_psql(script: &str) -> String {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .expect("psql を起動できない");
+        .expect("cannot start psql");
     child
         .stdin
         .take()
@@ -196,9 +203,10 @@ fn run_psql(script: &str) -> String {
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(
         !text.contains("could not connect") && !text.contains("connection to server"),
-        "PostgreSQL に接続できない:\n{text}"
+        "cannot connect to PostgreSQL:\n{text}"
     );
-    // エラーの位置（`psql:<stdin>:12: ERROR: ... at character 210`）は整形で変わるので消す
+    // Error positions (`psql:<stdin>:12: ERROR: ... at character 210`) change with formatting,
+    // so strip them
     text.lines()
         .map(|line| {
             let line = match line.strip_prefix("psql:<stdin>:") {
@@ -208,8 +216,8 @@ fn run_psql(script: &str) -> String {
             let line = line
                 .split_once(" at character ")
                 .map_or(line, |(msg, _)| msg);
-            // エラーメッセージは入力のトークンを引用する（`syntax error at or near "rename"`）ので、
-            // キーワードを大文字にしただけで変わる。大文字小文字を区別せずに比べる
+            // Error messages quote tokens from the input (`syntax error at or near "rename"`), so
+            // merely uppercasing a keyword changes them. Compare case-insensitively
             if line.starts_with("ERROR:") {
                 line.to_lowercase()
             } else {
@@ -220,7 +228,7 @@ fn run_psql(script: &str) -> String {
         .join("\n")
 }
 
-/// 整形の前後で、psql の出力が同じか
+/// Is the psql output the same before and after formatting?
 fn assert_equivalent(name: &str, src: &str, options: &FormatOptions) -> String {
     let formatted = format_with_options(src, options);
     let original_root = parse(src);
@@ -234,21 +242,22 @@ fn assert_equivalent(name: &str, src: &str, options: &FormatOptions) -> String {
     assert_eq!(
         statements(&formatted_root),
         statements(&original_root),
-        "{name}: 文の数が変わった"
+        "{name}: the number of statements changed"
     );
 
     let original = run_psql(&script(src));
     let after = run_psql(&script(&formatted));
     if after != original {
         panic!(
-            "{name}（{options:?}）: 整形の前後で PostgreSQL の結果が違う\n{}\n--- 整形後 ---\n{formatted}",
+            "{name} ({options:?}): PostgreSQL results differ before and after formatting\n{}\n\
+             --- formatted ---\n{formatted}",
             first_difference(&original, &after)
         );
     }
     original
 }
 
-/// 最初に違う行と、その前後の数行
+/// The first differing line and a few lines around it
 fn first_difference(expected: &str, actual: &str) -> String {
     let expected: Vec<_> = expected.lines().collect();
     let actual: Vec<_> = actual.lines().collect();
@@ -259,13 +268,14 @@ fn first_difference(expected: &str, actual: &str) -> String {
         lines[at.saturating_sub(5).min(lines.len())..(at + 5).min(lines.len())].join("\n")
     };
     format!(
-        "--- 整形前の出力（{at} 行目付近）---\n{}\n--- 整形後の出力 ---\n{}",
+        "--- output before formatting (around line {at}) ---\n{}\n\
+         --- output after formatting ---\n{}",
         window(&expected),
         window(&actual)
     )
 }
 
-/// 既定の設定、狭い行幅、既定以外の設定の組み合わせ
+/// The default options, a narrow width, and a combination of non-default options
 fn option_sets() -> [FormatOptions; 3] {
     [
         FormatOptions::default(),
@@ -287,7 +297,7 @@ fn formatted_fixtures_behave_the_same_in_postgres() {
     if !postgres_available() {
         return;
     }
-    // フィクスチャごとに別のトランザクション（別の接続）なので、並列に流す
+    // Each fixture gets its own transaction (its own connection), so run them in parallel
     let fixtures = fixtures(None);
     std::thread::scope(|scope| {
         for (name, src) in &fixtures {
@@ -300,7 +310,8 @@ fn formatted_fixtures_behave_the_same_in_postgres() {
     });
 }
 
-/// 検証用のフィクスチャは、整形前の SQL がすべて成功すること（比べる対象が空にならないように）
+/// Every statement of the verification fixtures must succeed before formatting (so that there is
+/// something to compare)
 #[test]
 fn postgres_fixtures_run_without_errors() {
     if !postgres_available() {
@@ -313,11 +324,14 @@ fn postgres_fixtures_run_without_errors() {
         let output = assert_equivalent(&name, &src, &FormatOptions::default());
         let unexpected: Vec<_> = output
             .lines()
-            // run_psql はエラーの行を小文字にしている
+            // run_psql lowercases error lines
             .filter(|l| l.to_lowercase().starts_with("error:") && !l.contains("negative: -1"))
             .collect();
-        assert!(unexpected.is_empty(), "{name}: 想定外のエラー\n{output}");
+        assert!(unexpected.is_empty(), "{name}: unexpected error\n{output}");
         plans += output.matches("QUERY PLAN").count();
     }
-    assert!(plans >= 10, "実行計画を比べた文が少ない: {plans}");
+    assert!(
+        plans >= 10,
+        "too few statements had their plans compared: {plans}"
+    );
 }

@@ -1,13 +1,15 @@
-//! 構文木を整形して文字列にする。
+//! Formats a syntax tree into a string.
 //!
-//! スタイル:
-//! - 句ごとに改行する。並びの項目が 2 つ以上なら、項目を 1 行ずつ字下げし、カンマは行頭に置く
-//! - WHERE / HAVING / ON の最上位の AND・OR は改行して 1 段深くする
-//! - JOIN は FROM の行より 1 段、ON はさらに 1 段深くする
-//! - 副問い合わせと CASE は複数行にする。それ以外の式は 1 行で、行幅に収まらなければ折り返す（`wrap.rs`）
-//! - キーワードは大文字にする。識別子・関数名・型名は入力のまま
+//! Style:
+//! - One clause per line. When a list has two or more items, each item goes on its own indented
+//!   line with a leading comma
+//! - Top-level AND / OR in WHERE / HAVING / ON break onto new lines one level deeper
+//! - JOIN is one level deeper than the FROM line, and ON one level deeper still
+//! - Subqueries and CASE span multiple lines. Every other expression stays on one line and is
+//!   wrapped only when it does not fit the line width (`wrap.rs`)
+//! - Keywords are upper-cased. Identifiers, function names and type names are kept as in the input
 //!
-//! `RawStatement` / `Error` は元のテキストのまま出す。
+//! `RawStatement` / `Error` are emitted verbatim.
 
 mod ddl;
 mod plpgsql;
@@ -24,9 +26,11 @@ use writer::{Writer, is_opaque};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatOptions {
-    /// 行幅。式がこれを超えるときに折り返す（全角文字は 2 桁と数える）
+    /// Line width. An expression that exceeds it is wrapped (a full-width character counts as
+    /// 2 columns)
     pub max_width: usize,
-    /// 1 段の字下げの幅。行頭カンマは項目より 2 桁左に置くので、2 以上にする
+    /// Width of one indentation level. Use 2 or more, since a leading comma is placed 2 columns
+    /// to the left of its item
     pub indent_width: usize,
     pub keyword_case: KeywordCase,
     pub comma_style: CommaStyle,
@@ -43,16 +47,16 @@ impl Default for FormatOptions {
     }
 }
 
-/// キーワードの大文字・小文字
+/// Case of keywords
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeywordCase {
     Upper,
     Lower,
-    /// 入力のまま
+    /// As in the input
     Preserve,
 }
 
-/// 項目を 1 行ずつ並べるときのカンマの位置
+/// Position of the comma when items are listed one per line
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommaStyle {
     /// `    a` / `  , b`
@@ -76,14 +80,14 @@ pub fn format_with_options(src: &str, options: &FormatOptions) -> String {
     };
     f.root(&root);
     let out = f.w.finish();
-    // 先頭の BOM は入力のまま残す（字句解析器は空白として読むので、ここで付け直す）
+    // Keep the leading BOM as in the input (the lexer reads it as whitespace, so re-add it here)
     if src.starts_with(BOM) {
         return format!("{BOM}{out}");
     }
     out
 }
 
-/// 中身を細かく解釈していない句で、大文字にするキーワード
+/// Keywords to upper-case in clauses whose contents are not parsed in detail
 const LOOSE_KEYWORDS: &[&str] = &[
     "absolute",
     "all",
@@ -127,13 +131,14 @@ const LOOSE_KEYWORDS: &[&str] = &[
 struct Formatter<'a> {
     w: Writer<'a>,
     max_width: usize,
-    /// 同じ行の後ろに続く別名（`AS name`）の幅と、その行。折り返しの判定で行幅から差し引く
+    /// Width of the alias (`AS name`) that follows later on the same line, and that line.
+    /// Subtracted from the line width when deciding whether to wrap
     reserve: Option<(usize, usize)>,
     indent_width: usize,
     comma_style: CommaStyle,
 }
 
-/// 空白・コメントを除いた子
+/// Children excluding whitespace and comments
 fn children<'n, 'a>(node: &'n Node<'a>) -> Vec<&'n Element<'a>> {
     node.children
         .iter()
@@ -163,7 +168,7 @@ fn is_token(element: &Element, kind: TokenKind) -> bool {
     as_token(element).is_some_and(|t| t.kind == kind)
 }
 
-/// AND / OR の BinaryExpr なら、その演算子（小文字）
+/// The operator (lower-cased) if the node is an AND / OR BinaryExpr
 fn logical_op(node: &Node) -> Option<String> {
     if node.kind != NodeKind::BinaryExpr {
         return None;
@@ -181,7 +186,8 @@ impl<'a> Formatter<'a> {
         let mut first = true;
         for element in children(root) {
             match element {
-                // COPY のデータは `;` の直後から入力のまま続ける（改行を足すとデータの始まりが変わる）
+                // COPY data continues verbatim right after the `;` (adding a newline would
+                // change where the data starts)
                 Element::Node(stmt)
                     if writer::token_range(stmt)
                         .is_some_and(|(t, _)| t.kind == TokenKind::CopyData) =>
@@ -235,7 +241,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    // ---- 式・インライン ----
+    // ---- Expressions and inline ----
 
     fn element(&mut self, element: &Element<'a>) {
         match element {
@@ -244,7 +250,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// ノードを書く。副問い合わせ・CASE・JOIN 以外は 1 行にする。
+    /// Writes a node. Everything except subqueries, CASE and JOIN goes on one line.
     fn node(&mut self, node: &Node<'a>) {
         match node.kind {
             kind if is_opaque(kind) => self.w.raw(node),
@@ -264,7 +270,7 @@ impl<'a> Formatter<'a> {
                 self.inline_glued(node, |e| is_token(e, TokenKind::LBracket))
             }
             NodeKind::CastCall => self.inline_glued(node, |e| is_token(e, TokenKind::LParen)),
-            // 別名の列の並び `AS g(n, i)` は名前に続ける
+            // The alias column list `AS g(n, i)` follows the name directly
             NodeKind::Alias => self.inline_glued(node, |e| is_node(e, NodeKind::ExprList)),
             NodeKind::ArrayExpr | NodeKind::RowExpr => self.inline_glued(node, |e| {
                 is_token(e, TokenKind::LBracket)
@@ -293,9 +299,10 @@ impl<'a> Formatter<'a> {
         self.inline_glued(node, |_| false);
     }
 
-    /// `glued` に当たる子の前には空白を入れない（`f(x)` / `numeric(10, 2)` / `a[1]`）。
-    /// 最後の子が別名なら、その前を書く間は別名の幅を同じ行に取っておく
-    /// （`f(a, b) AS name` の括弧の中を、別名まで含めた長さで折り返す）
+    /// No space is written before a child matching `glued` (`f(x)` / `numeric(10, 2)` / `a[1]`).
+    /// If the last child is an alias, its width is reserved on the current line while the
+    /// preceding children are written (so the inside of the parentheses in `f(a, b) AS name` is
+    /// wrapped based on the length including the alias)
     fn inline_glued(&mut self, node: &Node<'a>, glued: fn(&Element) -> bool) {
         let elements = children(node);
         let alias_width = match elements.last() {
@@ -306,7 +313,8 @@ impl<'a> Formatter<'a> {
             if i > 0 && glued(element) {
                 self.w.glue();
             }
-            // 別名を持つノード（項目・表・副問い合わせ）は、入れ子になると改行が入るので、同じ行で重ならない
+            // Nodes that carry an alias (items, tables, subqueries) get a line break when nested,
+            // so two reservations never overlap on the same line
             let saved = self.reserve;
             if alias_width > 0 && i + 1 < elements.len() {
                 self.reserve = Some((alias_width, self.w.line_id()));
@@ -316,8 +324,11 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// ノードを行の途中に 1 行で書いたときの幅（前の空白を含み、字下げとコメントは含まない）。外側を測っている途中なら 0。
-    /// コメントは、入力によって前後どちらのトークンに付くかが変わるので数えない（数えると 2 回目の整形で変わる）
+    /// Width of the node when written on one line in the middle of a line (including the
+    /// preceding space, excluding indentation and comments). 0 while an enclosing measurement is
+    /// in progress.
+    /// Comments are not counted, because which token they attach to (before or after) depends on
+    /// the input (counting them would change the result on a second formatting pass)
     fn inline_width(&mut self, node: &Node<'a>) -> usize {
         if self.w.measuring() {
             return 0;
@@ -330,7 +341,8 @@ impl<'a> Formatter<'a> {
         end.saturating_sub(start)
     }
 
-    /// 改行でつないだ文字列（`'a'` 改行 `'b'`）は、改行を残さないと意味が変わるので、続きを次の行に書く
+    /// Strings joined by a newline (`'a'` newline `'b'`) change meaning if the newline is
+    /// dropped, so the continuation goes on the next line
     fn literal(&mut self, node: &Node<'a>) {
         let base = self.w.indent();
         for (i, element) in children(node).into_iter().enumerate() {
@@ -341,8 +353,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 並びの項目の間のカンマを書き、次の項目の行（字下げ `item_indent`）に移る。
-    /// 行頭カンマは項目より `outdent` 桁左に置く。行末カンマは前の項目の行の最後に付ける。
+    /// Writes the comma between list items and moves to the next item's line (indented by
+    /// `item_indent`). A leading comma is placed `outdent` columns to the left of the item. A
+    /// trailing comma is appended to the end of the previous item's line.
     fn list_separator(
         &mut self,
         comma: &Token<'a>,
@@ -352,7 +365,8 @@ impl<'a> Formatter<'a> {
     ) {
         match self.comma_style {
             CommaStyle::Leading => {
-                // カンマの後ろの行末コメントは前の項目の行に残し、次の項目の前のコメントはカンマより前に出す
+                // Trailing comments after the comma stay on the previous item's line; comments
+                // before the next item are emitted before the comma
                 self.w.flush_trailing_comments(comma);
                 self.w.newline(item_indent);
                 if let Some(first) = next_item {
@@ -367,7 +381,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `numeric(10, 2)` / `int[]` / `tbl.col%TYPE` は空白を入れない
+    /// No spaces in `numeric(10, 2)` / `int[]` / `tbl.col%TYPE`
     fn type_name(&mut self, node: &Node<'a>) {
         let mut after_percent = false;
         for (i, element) in children(node).into_iter().enumerate() {
@@ -386,8 +400,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `-a` のような記号の前置演算子は空白を入れない。`NOT a` は入れる。
-    /// 被演算子が演算子で始まるとき（`- -a`）は、つなげると別のトークン（`--` はコメント）になるので空ける。
+    /// A symbolic prefix operator such as `-a` takes no space; `NOT a` does.
+    /// When the operand itself starts with an operator (`- -a`), a space is kept: joined together
+    /// they would form a different token (`--` is a comment).
     fn prefix_expr(&mut self, node: &Node<'a>) {
         let elements = children(node);
         for (i, element) in elements.iter().enumerate() {
@@ -403,7 +418,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 中身を細かく解釈していない句。既知のキーワードだけ大文字にする。
+    /// A clause whose contents are not parsed in detail. Only known keywords are upper-cased.
     fn loose(&mut self, node: &Node<'a>) {
         for element in children(node) {
             match element {
@@ -421,7 +436,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `(` と `)` の間の文やノードを、1 段深くした別の行に書く
+    /// Writes the statement or node between `(` and `)` on its own lines, one level deeper
     fn paren_block(&mut self, node: &Node<'a>) {
         let base = self.w.indent();
         let elements = children(node);
@@ -467,8 +482,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `left JOIN right ON cond` を、JOIN を `base` より 1 段、ON を 2 段深くして書く。
-    /// `base` は左側を書き始める行の字下げなので、左側の JOIN も同じ深さに並ぶ。
+    /// Writes `left JOIN right ON cond` with JOIN one level deeper than `base` and ON two levels
+    /// deeper. `base` is the indentation of the line where the left side starts, so a JOIN inside
+    /// the left side lines up at the same depth.
     fn join_expr(&mut self, node: &Node<'a>, base: usize) {
         let mut seen_left = false;
         let mut on_join_line = false;

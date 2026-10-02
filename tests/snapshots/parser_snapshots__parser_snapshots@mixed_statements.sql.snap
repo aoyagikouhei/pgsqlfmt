@@ -4,7 +4,7 @@ expression: debug_tree(path)
 input_file: tests/fixtures/parser/mixed_statements.sql
 ---
 Root
-  LineComment "-- 対応していない文はそのまま残る"
+  LineComment "-- unsupported statements are kept verbatim"
   CreateTableStmt
     Keyword "CREATE"
     Keyword "TABLE"
@@ -90,4 +90,4 @@ Root
       WhereClause
         Keyword "WHERE"
   Semicolon ";"
-  LineComment "-- 壊れた文"
+  LineComment "-- broken statement"

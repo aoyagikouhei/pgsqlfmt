@@ -1,4 +1,4 @@
--- 実機検証用。関数を作って呼び出し、整形の前後で結果と NOTICE が同じになること。
+-- Real-PostgreSQL verification: create and call functions; results and NOTICEs must match.
 create function classify(p_amount numeric, p_label text default 'x') returns text language plpgsql immutable as $$
 declare
   v_result text := '';

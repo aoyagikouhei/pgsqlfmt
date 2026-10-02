@@ -1,103 +1,103 @@
-# pgsqlfmt の使い方
+# Using pgsqlfmt
 
-PostgreSQL の SQL と PL/pgSQL（ストアドプロシージャ・関数・DO）を整形するコマンドラインツールです。
+A command-line tool that formats PostgreSQL SQL and PL/pgSQL (stored procedures, functions, and DO blocks).
 
-- [インストール](#インストール)
-- [基本の使い方](#基本の使い方)
-- [オプション](#オプション)
-- [pre-commit で使う](#pre-commit-で使う)
-- [整形のスタイル](#整形のスタイル)
-- [対応している文](#対応している文)
-- [元のまま出すもの](#元のまま出すもの)
+- [Installation](#installation)
+- [Basic usage](#basic-usage)
+- [Options](#options)
+- [Using with pre-commit](#using-with-pre-commit)
+- [Formatting style](#formatting-style)
+- [Supported statements](#supported-statements)
+- [What is output verbatim](#what-is-output-verbatim)
 
-## インストール
+## Installation
 
-### ビルド済みのバイナリを使う（Linux）
+### Using a prebuilt binary (Linux)
 
-Linux の amd64 と arm64 向けのバイナリを、[GitHub Releases](https://github.com/aoyagikouhei/pgsqlfmt/releases) で配布しています。
-静的にリンクしているので、ディストリビューションによらず動きます。
+Binaries for Linux amd64 and arm64 are distributed on [GitHub Releases](https://github.com/aoyagikouhei/pgsqlfmt/releases).
+They are statically linked, so they run on any distribution.
 
 ```sh
 curl -sSL "https://github.com/aoyagikouhei/pgsqlfmt/releases/latest/download/pgsqlfmt-$(uname -m)-unknown-linux-musl.tar.gz" | tar xz pgsqlfmt
 sudo mv pgsqlfmt /usr/local/bin/
 ```
 
-| CPU | ファイル |
+| CPU | File |
 | --- | --- |
-| amd64（x86_64） | `pgsqlfmt-x86_64-unknown-linux-musl.tar.gz` |
-| arm64（aarch64） | `pgsqlfmt-aarch64-unknown-linux-musl.tar.gz` |
+| amd64 (x86_64) | `pgsqlfmt-x86_64-unknown-linux-musl.tar.gz` |
+| arm64 (aarch64) | `pgsqlfmt-aarch64-unknown-linux-musl.tar.gz` |
 
-それぞれのファイルに、SHA-256 のチェックサム（`.sha256`）を添えています。ダウンロードしたファイルは次のように確かめられます。
+Each file comes with a SHA-256 checksum (`.sha256`). You can verify a downloaded file like this.
 
 ```sh
 sha256sum -c pgsqlfmt-x86_64-unknown-linux-musl.tar.gz.sha256
 ```
 
-### cargo でインストールする
+### Installing with cargo
 
-Rust（cargo）が入っていれば、GitHub から直接ビルドしてインストールできます。
+If you have Rust (cargo), you can build and install directly from GitHub.
 
 ```sh
 cargo install --git https://github.com/aoyagikouhei/pgsqlfmt
 ```
 
-`~/.cargo/bin/pgsqlfmt` に入ります。
+The binary is installed to `~/.cargo/bin/pgsqlfmt`.
 
-### Docker で使う
+### Using Docker
 
-Rust を入れずに使うときは、Docker イメージを作ります。
+To use it without installing Rust, build the Docker image.
 
 ```sh
 docker build -t pgsqlfmt https://github.com/aoyagikouhei/pgsqlfmt.git
 ```
 
-イメージの作業ディレクトリは `/src` です。整形したいディレクトリを `/src` にマウントして使います。
+The image's working directory is `/src`. Mount the directory you want to format at `/src`.
 
 ```sh
-docker run --rm -i pgsqlfmt < query.sql                  # 標準入力を整形
-docker run --rm -v "$PWD:/src" pgsqlfmt --check .        # 整形されていないファイルの一覧
-docker run --rm -v "$PWD:/src" pgsqlfmt --write db/      # ファイルを整形して上書き
+docker run --rm -i pgsqlfmt < query.sql                  # format stdin
+docker run --rm -v "$PWD:/src" pgsqlfmt --check .        # list files that are not formatted
+docker run --rm -v "$PWD:/src" pgsqlfmt --write db/      # format and overwrite files
 ```
 
-## 基本の使い方
+## Basic usage
 
 ```sh
-pgsqlfmt < query.sql             # 標準入力を整形して標準出力へ
-pgsqlfmt query.sql               # ファイルを整形して標準出力へ（ファイルは書き換えない）
-pgsqlfmt --write db/             # db/ の下の *.sql を整形して上書き
-pgsqlfmt --check .               # 整形されていない *.sql の一覧を出す（書き換えない）
+pgsqlfmt < query.sql             # format stdin and write to stdout
+pgsqlfmt query.sql               # format a file and write to stdout (the file is not modified)
+pgsqlfmt --write db/             # format and overwrite *.sql under db/
+pgsqlfmt --check .               # list *.sql files that are not formatted (does not rewrite)
 ```
 
-- ファイルを指定しなければ、標準入力を整形して標準出力に書きます。`-` も標準入力を表します。
-- ディレクトリを指定すると、その下の `*.sql` を探します。`.` で始まるファイルとディレクトリは除きます。
-- 2 つ以上のファイルやディレクトリを指定するときは、`--write` か `--check` が必要です。
-- `--write` は、整形で中身が変わったファイルだけを書き換えます。
-- `--check` はファイルを書き換えません。CI での確認に使います。
+- With no file given, stdin is formatted and written to stdout. `-` also means stdin.
+- Given a directory, `*.sql` files under it are searched for. Files and directories starting with `.` are skipped.
+- When two or more files or directories are given, `--write` or `--check` is required.
+- `--write` rewrites only the files whose contents change after formatting.
+- `--check` does not modify files. Use it for verification in CI.
 
-終了コードは次のとおりです。
+The exit codes are as follows.
 
-| 終了コード | 意味 |
+| Exit code | Meaning |
 | --- | --- |
-| 0 | 成功 |
-| 1 | `--check` で、整形されていないファイルがあった |
-| 2 | 引数の誤り、またはファイルの読み書きのエラー |
+| 0 | Success |
+| 1 | `--check` found files that are not formatted |
+| 2 | Argument error, or an error reading or writing a file |
 
-## オプション
+## Options
 
-| オプション | 値 | 既定 |
+| Option | Value | Default |
 | --- | --- | --- |
-| `-w`, `--max-width N` | 行幅 | 80 |
-| `--indent N` | 字下げの幅（2〜8） | 4 |
-| `--keyword-case` | `upper` / `lower` / `preserve`（入力のまま） | `upper` |
-| `--comma` | `leading`（行頭）/ `trailing`（行末） | `leading` |
-| `--write` | ファイルを整形結果で上書きする | |
-| `--check` | 整形されていなければ一覧を出して終了コード 1（書き換えない） | |
-| `-h`, `--help` | 説明を表示する | |
+| `-w`, `--max-width N` | Line width | 80 |
+| `--indent N` | Indent width (2 to 8) | 4 |
+| `--keyword-case` | `upper` / `lower` / `preserve` (as in the input) | `upper` |
+| `--comma` | `leading` (start of line) / `trailing` (end of line) | `leading` |
+| `--write` | Overwrite files with the formatted result | |
+| `--check` | List files that are not formatted and exit with code 1 (does not rewrite) | |
+| `-h`, `--help` | Show this help | |
 
-既定のスタイルと、`--indent 2 --comma trailing --keyword-case lower` を指定したときの違いです。
+Here is the difference between the default style and `--indent 2 --comma trailing --keyword-case lower`.
 
 ```sql
--- 既定
+-- default
 SELECT
     c.id
   , c.name
@@ -112,49 +112,49 @@ from customers c
 where c.active;
 ```
 
-## pre-commit で使う
+## Using with pre-commit
 
-[pre-commit](https://pre-commit.com/) のフックとして使えます。フックは Docker で動くので、Rust は要りません。
+pgsqlfmt can be used as a [pre-commit](https://pre-commit.com/) hook. The hook runs in Docker, so Rust is not required.
 
 ```yaml
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/aoyagikouhei/pgsqlfmt
-    rev: v0.2.0  # リリースのタグ
+    rev: v0.2.0  # a release tag
     hooks:
-      - id: pgsqlfmt          # 整形して書き換える
-      # - id: pgsqlfmt-check  # 確かめるだけ（CI 向け）
+      - id: pgsqlfmt          # format and rewrite
+      # - id: pgsqlfmt-check  # check only (for CI)
 ```
 
-| フック | 動き |
+| Hook | Behavior |
 | --- | --- |
-| `pgsqlfmt` | `*.sql` を整形して書き換える |
-| `pgsqlfmt-check` | 整形されていない `*.sql` があれば失敗する（書き換えない） |
+| `pgsqlfmt` | Formats and rewrites `*.sql` |
+| `pgsqlfmt-check` | Fails if any `*.sql` is not formatted (does not rewrite) |
 
-`rev` には [リリース](https://github.com/aoyagikouhei/pgsqlfmt/releases) のタグを書きます。
-新しい版が出たら、`pre-commit autoupdate` で最新のタグに上げられます。
+Set `rev` to a tag from the [releases](https://github.com/aoyagikouhei/pgsqlfmt/releases).
+When a new version is out, `pre-commit autoupdate` bumps it to the latest tag.
 
-オプションは `args` で渡します。
+Options are passed with `args`.
 
 ```yaml
       - id: pgsqlfmt
         args: [--indent, "2", --comma, trailing]
 ```
 
-## 整形のスタイル
+## Formatting style
 
-### 問い合わせ
+### Queries
 
-句ごとに改行します。並びの項目が 2 つ以上なら 1 行ずつ字下げし、カンマは行頭に置きます。
-WHERE・HAVING・ON の AND と OR で改行します。JOIN は FROM より 1 段、ON はさらに 1 段深くします。
+Each clause starts on a new line. When a list has two or more items, each item goes on its own indented line with leading commas.
+AND and OR in WHERE, HAVING, and ON start new lines. JOIN is indented one level deeper than FROM, and ON one level deeper still.
 
 ```sql
--- 入力
+-- input
 select c.id, c.name, count(o.id) as orders from customers c left join orders o on o.customer_id = c.id and o.status <> 'cancelled' where c.active and c.created_at >= '2026-01-01' group by c.id, c.name order by orders desc limit 10;
 ```
 
 ```sql
--- 出力
+-- output
 SELECT
     c.id
   , c.name
@@ -172,18 +172,18 @@ ORDER BY orders DESC
 LIMIT 10;
 ```
 
-- 副問い合わせと CASE は複数行にします。
-- キーワードは大文字にします。表・列・関数・型の名前は入力のまま残します。
-- コメントと、文やコメントの前後の空行は残します。
+- Subqueries and CASE are written on multiple lines.
+- Keywords are written in upper case. Table, column, function, and type names are kept as in the input.
+- Comments, and blank lines before and after statements and comments, are kept.
 
-### 行幅による折り返し
+### Wrapping by line width
 
-行幅（既定 80。全角文字は 2 桁と数える）に収まらない式は折り返します。
+Expressions that do not fit in the line width (default 80; full-width characters count as two columns) are wrapped.
 
-- 関数の引数や `IN (...)` などの括弧の中の並びは、1 行ずつ行頭カンマで並べます。
-- 二項演算は演算子の前で折り返します。
-- `OVER (...)` は句ごとに改行します。
-- PL/pgSQL の RAISE と EXECUTE は、`USING` と `INTO` の前で改行します。
+- Lists inside parentheses, such as function arguments and `IN (...)`, are written one per line with leading commas.
+- Binary operations are wrapped before the operator.
+- `OVER (...)` is written with one clause per line.
+- PL/pgSQL RAISE and EXECUTE are broken before `USING` and `INTO`.
 
 ```sql
 SELECT format_name(
@@ -195,14 +195,14 @@ SELECT format_name(
 FROM customers;
 ```
 
-### 関数と PL/pgSQL
+### Functions and PL/pgSQL
 
-`CREATE FUNCTION` と `CREATE PROCEDURE` は、RETURNS・LANGUAGE・AS などのオプションを 1 行ずつにします。
-本体は `LANGUAGE plpgsql` なら PL/pgSQL として、`LANGUAGE sql` なら SQL として中身も整形します。
-`DO` の本体と `BEGIN ATOMIC ... END` も整形します。ほかの言語の本体はそのまま残します。
+In `CREATE FUNCTION` and `CREATE PROCEDURE`, options such as RETURNS, LANGUAGE, and AS go one per line.
+The body is formatted as PL/pgSQL for `LANGUAGE plpgsql` and as SQL for `LANGUAGE sql`.
+`DO` bodies and `BEGIN ATOMIC ... END` are formatted too. Bodies in other languages are kept as they are.
 
-PL/pgSQL は DECLARE・BEGIN・EXCEPTION・END をブロックの深さに置き、文を 1 段深くします。
-IF・CASE・LOOP・WHILE・FOR・FOREACH の中はさらに 1 段深くします。
+In PL/pgSQL, DECLARE, BEGIN, EXCEPTION, and END are placed at the block's depth, and statements one level deeper.
+The contents of IF, CASE, LOOP, WHILE, FOR, and FOREACH go one level deeper still.
 
 ```sql
 CREATE OR REPLACE FUNCTION add_points(p_id bigint, p_points int)
@@ -227,7 +227,7 @@ $$;
 
 ### DDL
 
-CREATE TABLE の列と制約は、1 つでも必ず 1 行ずつ行頭カンマで並べます。
+The columns and constraints of CREATE TABLE are always written one per line with leading commas, even when there is only one.
 
 ```sql
 CREATE TABLE orders (
@@ -238,42 +238,42 @@ CREATE TABLE orders (
 );
 ```
 
-文ごとのレイアウトは [対応している文](#対応している文) を見てください。
+See [Supported statements](#supported-statements) for the layout of each statement.
 
-## 対応している文
+## Supported statements
 
-| 文 | レイアウト |
+| Statement | Layout |
 | --- | --- |
-| SELECT・VALUES・WITH・集合演算 | 句ごとに改行する |
-| INSERT・UPDATE・DELETE・MERGE | 句ごとに改行する。MERGE は USING と WHEN を行頭に置く |
-| CREATE FUNCTION・CREATE PROCEDURE・DO・CALL | オプションを 1 行ずつ並べ、本体の中身も整形する |
-| CREATE TABLE | 列と制約を 1 行ずつ並べる |
-| CREATE TYPE | 複合型の列は CREATE TABLE と同じく 1 行ずつ。ENUM・RANGE などは 1 行 |
-| CREATE SEQUENCE・ALTER SEQUENCE | オプションを 1 行ずつ並べる |
-| CREATE TRIGGER | タイミングとイベント・FOR EACH・WHEN・EXECUTE などの句を 1 行ずつ並べる |
-| CREATE INDEX・CREATE [MATERIALIZED] VIEW | 1 行。VIEW の問い合わせは次の行から、INDEX の WHERE は次の行に書く |
-| ALTER TABLE | 操作が 2 つ以上なら 1 行ずつ並べる |
-| ほかの ALTER（INDEX・VIEW・FUNCTION・TYPE・DOMAIN・SCHEMA・ROLE・DEFAULT PRIVILEGES など） | 1 行 |
-| CREATE SCHEMA・CREATE EXTENSION・DROP・TRUNCATE・COMMENT ON | 1 行 |
-| GRANT・REVOKE | 1 行。権限・オブジェクトの種類・PUBLIC などを大文字にする |
-| COPY | 1 行。`COPY (query)` の問い合わせは副問い合わせと同じく複数行にする |
-| SET・RESET・SHOW | 1 行 |
-| EXPLAIN | オプションの次の行から、対象の文を整形する |
-| BEGIN・COMMIT・ROLLBACK・SAVEPOINT などのトランザクション制御 | 1 行 |
+| SELECT, VALUES, WITH, set operations | One clause per line |
+| INSERT, UPDATE, DELETE, MERGE | One clause per line. MERGE puts USING and WHEN at the start of a line |
+| CREATE FUNCTION, CREATE PROCEDURE, DO, CALL | Options one per line; the body is formatted too |
+| CREATE TABLE | Columns and constraints one per line |
+| CREATE TYPE | Columns of a composite type one per line, like CREATE TABLE. ENUM, RANGE, etc. on one line |
+| CREATE SEQUENCE, ALTER SEQUENCE | Options one per line |
+| CREATE TRIGGER | Timing and events, FOR EACH, WHEN, EXECUTE, and other clauses one per line |
+| CREATE INDEX, CREATE [MATERIALIZED] VIEW | One line. The VIEW's query starts on the next line; the INDEX's WHERE goes on the next line |
+| ALTER TABLE | Actions one per line when there are two or more |
+| Other ALTER statements (INDEX, VIEW, FUNCTION, TYPE, DOMAIN, SCHEMA, ROLE, DEFAULT PRIVILEGES, etc.) | One line |
+| CREATE SCHEMA, CREATE EXTENSION, DROP, TRUNCATE, COMMENT ON | One line |
+| GRANT, REVOKE | One line. Privileges, object kinds, PUBLIC, etc. are written in upper case |
+| COPY | One line. The query in `COPY (query)` is written on multiple lines, like a subquery |
+| SET, RESET, SHOW | One line |
+| EXPLAIN | The target statement is formatted starting on the line after the options |
+| Transaction control such as BEGIN, COMMIT, ROLLBACK, SAVEPOINT | One line |
 
-キーワードと同じ綴りの名前（`RENAME TO data` の `data` など）は、名前の位置にあれば入力のまま残します。
+Names spelled like keywords (such as `data` in `RENAME TO data`) are kept as in the input when they appear in a name position.
 
-## 元のまま出すもの
+## What is output verbatim
 
-整形で SQL の意味が変わらないように、次のものは入力のまま出します。
+So that formatting never changes the meaning of your SQL, the following are output as in the input.
 
-- **対応していない文:** VACUUM・LOCK などの文は、文全体を入力のまま出します。
-- **解釈できない部分:** 構文として読めない部分は、その部分だけを入力のまま出します。
-- **COPY のデータ:** `COPY ... FROM STDIN;` に続くデータは、`\.` だけの行まで入力のまま出します。
-- **文字列とコメントの中身:** 文字列・引用符付きの名前・コメントの中身は変えません。
-- **先頭の BOM と改行コード:** 先頭の BOM はそのまま残します。改行は入力の最初の改行に合わせます（CRLF のファイルは CRLF のまま）。
+- **Unsupported statements:** statements such as VACUUM and LOCK are output verbatim as a whole.
+- **Unparseable parts:** parts that cannot be read as syntax are output verbatim, limited to just that part.
+- **COPY data:** the data following `COPY ... FROM STDIN;` is output verbatim up to the line containing only `\.`.
+- **Contents of strings and comments:** the contents of strings, quoted identifiers, and comments are not changed.
+- **Leading BOM and line endings:** a leading BOM is kept. Line endings follow the first line ending in the input (CRLF files stay CRLF).
 
-psql の変数（`:name`・`:'name'`・`:"name"`）は 1 つの名前として扱い、前後の語とくっつけません。
-くっつけると、psql が置き換えた値が前の語とつながってしまうためです。
+psql variables (`:name`, `:'name'`, `:"name"`) are treated as a single name and are never joined to the surrounding words.
+Joining them would make the value substituted by psql run into the preceding word.
 
-psql のメタコマンド（`\set` など）の行の直後の文は、整形せずに入力のまま出します。
+A statement immediately following a line with a psql meta-command (such as `\set`) is output verbatim without formatting.

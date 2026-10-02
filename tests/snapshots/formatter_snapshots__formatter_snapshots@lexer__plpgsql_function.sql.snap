@@ -11,7 +11,7 @@ RETURNS int
 LANGUAGE plpgsql
 AS $fn$
 DECLARE
-    v_total int := 0; -- 合計
+    v_total int := 0; -- total
 BEGIN
     FOR i IN 1..p_points LOOP
         v_total := v_total + i;

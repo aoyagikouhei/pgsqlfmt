@@ -1,19 +1,19 @@
 COMPOSE := docker compose
-# CI のように端末がない環境では `make check RUN_FLAGS=-T` とする
+# In environments without a terminal, such as CI, use `make check RUN_FLAGS=-T`
 RUN := $(COMPOSE) run --rm $(RUN_FLAGS) dev
 
 .PHONY: up down build shell test fmt clippy check psql db-reset logs snapshot-review image
 
-up: ## コンテナを起動
+up: ## Start the containers
 	$(COMPOSE) up -d --build
 
-down: ## コンテナを停止
+down: ## Stop the containers
 	$(COMPOSE) down
 
 build: ## cargo build
 	$(RUN) cargo build
 
-shell: ## 開発コンテナに入る
+shell: ## Open a shell in the dev container
 	$(RUN) bash
 
 test: ## cargo test
@@ -25,22 +25,22 @@ fmt: ## cargo fmt
 clippy: ## cargo clippy
 	$(RUN) cargo clippy --all-targets -- -D warnings
 
-check: ## fmt チェック + clippy + test
+check: ## fmt check + clippy + test
 	$(RUN) sh -c 'cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test'
 
-psql: ## PostgreSQL に psql で接続
+psql: ## Connect to PostgreSQL with psql
 	$(COMPOSE) exec db psql -U postgres -d sql_formatter
 
-db-reset: ## DB ボリュームを削除して作り直す
+db-reset: ## Delete and recreate the database volume
 	$(COMPOSE) rm -sfv db
 	-docker volume rm sql-formatter-rs_pg-data
 	$(COMPOSE) up -d db
 
-image: ## 配布用の pgsqlfmt イメージを作る
+image: ## Build the pgsqlfmt distribution image
 	docker build -t pgsqlfmt .
 
 logs:
 	$(COMPOSE) logs -f
 
-snapshot-review: ## スナップショットの差分を確認して承認
+snapshot-review: ## Review and accept snapshot diffs
 	$(RUN) cargo insta test --review

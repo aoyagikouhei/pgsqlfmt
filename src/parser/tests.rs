@@ -1,7 +1,7 @@
 use super::parse;
 use crate::syntax::{Element, Node, NodeKind};
 
-/// 空白・コメントを省いた S 式。トークンは元のテキストのまま出す。
+/// S-expression with whitespace and comments (trivia) omitted. Tokens are printed verbatim.
 fn sexpr(node: &Node) -> String {
     let parts: Vec<String> = node
         .children
@@ -17,11 +17,11 @@ fn sexpr(node: &Node) -> String {
 
 fn parse_checked(src: &str) -> Node<'_> {
     let root = parse(src);
-    assert_eq!(root.text(), src, "木のテキストが入力と一致すること");
+    assert_eq!(root.text(), src, "tree text must match the input");
     root
 }
 
-/// 文全体の S 式（Root は省く）
+/// S-expression of all statements (without the Root wrapper)
 fn stmts(src: &str) -> String {
     let root = parse_checked(src);
     let inner = sexpr(&root);
@@ -42,25 +42,25 @@ fn find<'n, 'a>(node: &'n Node<'a>, kind: NodeKind) -> Option<&'n Node<'a>> {
     })
 }
 
-/// `SELECT <src>` の最初の選択項目の式
+/// The expression of the first target item of `SELECT <src>`
 fn expr(src: &str) -> String {
     let full = format!("SELECT {src}");
     let root = parse_checked(&full);
-    let item = find(&root, NodeKind::TargetItem).expect("選択項目がない");
+    let item = find(&root, NodeKind::TargetItem).expect("no target item");
     let Element::Node(e) = &item.children[0] else {
-        panic!("選択項目の先頭がノードでない")
+        panic!("the target item does not start with a node")
     };
-    // 式の後ろに読み残しがないこと
+    // Nothing may be left unread after the expression
     assert_eq!(
         e.text(),
         src,
-        "式が入力全体を覆っていない: {}",
+        "expression does not cover the whole input: {}",
         sexpr(&root)
     );
     sexpr(e)
 }
 
-// ---- 式 ----
+// ---- Expressions ----
 
 #[test]
 fn arithmetic_precedence_and_associativity() {
@@ -80,7 +80,7 @@ fn arithmetic_precedence_and_associativity() {
         expr("a * b % c / d"),
         "(BinaryExpr (BinaryExpr (BinaryExpr (ColumnRef a) * (ColumnRef b)) % (ColumnRef c)) / (ColumnRef d))"
     );
-    // `^` は `*` より強い
+    // `^` binds tighter than `*`
     assert_eq!(
         expr("a * b ^ c"),
         "(BinaryExpr (ColumnRef a) * (BinaryExpr (ColumnRef b) ^ (ColumnRef c)))"
@@ -109,12 +109,12 @@ fn logical_precedence() {
 
 #[test]
 fn comparison_and_other_operators() {
-    // `||` などは比較より強い
+    // `||` and other generic operators bind tighter than comparison
     assert_eq!(
         expr("a || b = c"),
         "(BinaryExpr (BinaryExpr (ColumnRef a) || (ColumnRef b)) = (ColumnRef c))"
     );
-    // 算術は `||` などより強い
+    // Arithmetic binds tighter than `||` and other generic operators
     assert_eq!(
         expr("a = b || c"),
         "(BinaryExpr (ColumnRef a) = (BinaryExpr (ColumnRef b) || (ColumnRef c)))"
@@ -162,7 +162,7 @@ fn is_expressions() {
         expr("a IS NOT DISTINCT FROM b + 1"),
         "(IsExpr (ColumnRef a) IS NOT DISTINCT FROM (BinaryExpr (ColumnRef b) + (Literal 1)))"
     );
-    // IS は比較より弱いので、IS DISTINCT FROM の右辺に IS は入らない
+    // IS is weaker than comparison, so IS cannot appear on the right of IS DISTINCT FROM
     assert_eq!(
         expr("a IS DISTINCT FROM b IS NULL"),
         "(IsExpr (IsExpr (ColumnRef a) IS DISTINCT FROM (ColumnRef b)) IS NULL)"
@@ -208,7 +208,7 @@ fn pattern_expressions() {
         expr("a NOT SIMILAR TO 'x'"),
         "(LikeExpr (ColumnRef a) NOT SIMILAR TO (Literal 'x'))"
     );
-    // LIKE は比較より強い
+    // LIKE binds tighter than comparison
     assert_eq!(
         expr("a LIKE b = c"),
         "(BinaryExpr (LikeExpr (ColumnRef a) LIKE (ColumnRef b)) = (ColumnRef c))"
@@ -249,7 +249,7 @@ fn postfix_expressions() {
         expr("a COLLATE \"C\" < b"),
         "(BinaryExpr (CollateExpr (ColumnRef a) COLLATE \"C\") < (ColumnRef b))"
     );
-    // 単項の `-` は COLLATE / AT より強い（gram.y の UMINUS）
+    // Unary `-` binds tighter than COLLATE / AT (UMINUS in gram.y)
     assert_eq!(
         expr("-a COLLATE \"C\""),
         "(CollateExpr (PrefixExpr - (ColumnRef a)) COLLATE \"C\")"
@@ -276,7 +276,7 @@ fn typed_literals() {
         expr("character varying 'x'"),
         "(TypedLiteral character varying 'x')"
     );
-    // 文字列が続かなければ型付きリテラルではない
+    // Without a following string it is not a typed literal
     assert_eq!(expr("timestamp"), "(ColumnRef timestamp)");
 }
 
@@ -292,7 +292,8 @@ fn primaries() {
         "(FuncCall current_timestamp (ArgList ( (Literal 3) )))"
     );
     assert_eq!(expr("interval '1 day'"), "(TypedLiteral interval '1 day')");
-    // 改行を挟んだ文字列は 1 つにつながる。同じ行や接頭辞付きはつながらない
+    // Strings separated by a newline are joined into one; on the same line or with a prefix they
+    // are not
     assert_eq!(expr("'a'\n  'b'\n'c'"), "(Literal 'a' 'b' 'c')");
     assert_eq!(
         stmts("SELECT 'a' 'b'"),
@@ -469,7 +470,7 @@ fn select_without_targets() {
 
 #[test]
 fn select_into_before_targets() {
-    // PL/pgSQL の `SELECT INTO target expr` は、INTO を SELECT 句の先頭に置く
+    // PL/pgSQL's `SELECT INTO target expr` puts INTO at the start of the SELECT clause
     assert_eq!(
         stmts("SELECT INTO STRICT r a, b FROM t"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (IntoClause INTO STRICT r) (TargetItem (ColumnRef a)) , (TargetItem (ColumnRef b))) (FromClause FROM (TableRef t))))"
@@ -496,7 +497,7 @@ fn joins() {
         ),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef *))) (FromClause FROM (JoinExpr (JoinExpr (JoinExpr (TableRef a (Alias x)) JOIN (TableRef b (Alias AS y)) (JoinCondition ON (BinaryExpr (ColumnRef x . id) = (ColumnRef y . id)))) LEFT OUTER JOIN (TableRef c) (JoinCondition USING (ExprList ( (ColumnRef id) )))) CROSS JOIN (TableRef d)))))"
     );
-    // 結合のキーワードは別名にしない
+    // Join keywords are not taken as aliases
     assert_eq!(
         stmts("SELECT 1 FROM a NATURAL FULL JOIN b"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))) (FromClause FROM (JoinExpr (TableRef a) NATURAL FULL JOIN (TableRef b)))))"
@@ -515,12 +516,12 @@ fn from_items() {
 
 #[test]
 fn set_operations() {
-    // INTERSECT は UNION より強い
+    // INTERSECT binds tighter than UNION
     assert_eq!(
         stmts("SELECT 1 UNION SELECT 2 INTERSECT SELECT 3"),
         "(SelectStmt (SetOperation (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)))) UNION (SetOperation (SimpleSelect (SelectClause SELECT (TargetItem (Literal 2)))) INTERSECT (SimpleSelect (SelectClause SELECT (TargetItem (Literal 3)))))))"
     );
-    // ORDER BY / LIMIT は集合演算全体にかかる
+    // ORDER BY / LIMIT apply to the whole set operation
     assert_eq!(
         stmts("SELECT 1 UNION ALL SELECT 2 EXCEPT (SELECT 3 LIMIT 1) ORDER BY 1 LIMIT 2"),
         "(SelectStmt (SetOperation (SetOperation (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)))) UNION ALL (SimpleSelect (SelectClause SELECT (TargetItem (Literal 2))))) EXCEPT (ParenSelect ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 3)))) (LimitClause LIMIT (Literal 1))) ))) (OrderByClause ORDER BY (SortItem (Literal 1))) (LimitClause LIMIT (Literal 2)))"
@@ -535,12 +536,12 @@ fn with_clause() {
         ),
         "(SelectStmt (WithClause WITH RECURSIVE (Cte r (ExprList ( (ColumnRef n) )) AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ))) , (Cte m AS MATERIALIZED (SubqueryExpr ( (SelectStmt (ValuesClause VALUES (ExprList ( (Literal 1) )) , (ExprList ( (Literal 2) )))) )))) (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef n))) (FromClause FROM (TableRef r))))"
     );
-    // CTE の本体には DML も書ける
+    // A CTE body may also be DML
     assert_eq!(
         stmts("WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d"),
         "(SelectStmt (WithClause WITH (Cte d AS (SubqueryExpr ( (DeleteStmt DELETE FROM (TableRef t) (ReturningClause RETURNING (TargetItem (ColumnRef *)))) )))) (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef *))) (FromClause FROM (TableRef d))))"
     );
-    // 対応していない文の CTE 本体はそのまま保持する
+    // A CTE body with an unsupported statement is kept verbatim
     assert_eq!(
         stmts("WITH m AS (NOTIFY c) SELECT 1"),
         "(SelectStmt (WithClause WITH (Cte m AS (SubqueryExpr ( (RawStatement NOTIFY c) )))) (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1)))))"
@@ -559,7 +560,7 @@ fn other_select_clauses() {
         stmts("SELECT 1 GROUP BY GROUPING SETS ((a, b), ()), ROLLUP (c)"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))) (GroupByClause GROUP BY (GroupingSets GROUPING SETS (ExprList ( (RowExpr (ExprList ( (ColumnRef a) , (ColumnRef b) ))) , (RowExpr (ExprList ( ))) ))) , (GroupingSets ROLLUP (ExprList ( (ColumnRef c) ))))))"
     );
-    // ROLLUP / CUBE は括弧が続くときだけキーワード（`cube` という列もある）
+    // ROLLUP / CUBE are keywords only when followed by parentheses (a column may be named `cube`)
     assert_eq!(
         stmts("SELECT 1 GROUP BY CUBE (a, b), cube"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))) (GroupByClause GROUP BY (GroupingSets CUBE (ExprList ( (ColumnRef a) , (ColumnRef b) ))) , (ColumnRef cube))))"
@@ -579,7 +580,7 @@ fn insert_statements() {
         stmts("INSERT INTO s.t AS x (a, b) VALUES (1, DEFAULT), (2, 3) RETURNING a, b AS c"),
         "(InsertStmt INSERT INTO (TableRef s . t (Alias AS x)) (ExprList ( (ColumnRef a) , (ColumnRef b) )) (SelectStmt (ValuesClause VALUES (ExprList ( (Literal 1) , (Literal DEFAULT) )) , (ExprList ( (Literal 2) , (Literal 3) )))) (ReturningClause RETURNING (TargetItem (ColumnRef a)) , (TargetItem (ColumnRef b) (Alias AS c))))"
     );
-    // VALUES は予約語ではないが、AS なしの別名にはしない
+    // VALUES is not a reserved word, but it is not taken as an alias without AS
     assert_eq!(
         stmts("INSERT INTO t VALUES (1)"),
         "(InsertStmt INSERT INTO (TableRef t) (SelectStmt (ValuesClause VALUES (ExprList ( (Literal 1) )))))"
@@ -588,7 +589,7 @@ fn insert_statements() {
         stmts("INSERT INTO t DEFAULT VALUES"),
         "(InsertStmt INSERT INTO (TableRef t) DEFAULT VALUES)"
     );
-    // 括弧で囲んだ問い合わせは列名の並びと区別する
+    // A parenthesized query is distinguished from a column name list
     assert_eq!(
         stmts("INSERT INTO t (SELECT 1)"),
         "(InsertStmt INSERT INTO (TableRef t) (SelectStmt (ParenSelect ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ))))"
@@ -601,7 +602,7 @@ fn insert_statements() {
 
 #[test]
 fn insert_on_conflict() {
-    // 問い合わせの FROM 句は ON CONFLICT の手前で終わる
+    // The query's FROM clause ends before ON CONFLICT
     assert_eq!(
         stmts(
             "INSERT INTO t SELECT * FROM s ON CONFLICT (id) WHERE a DO UPDATE SET v = EXCLUDED.v WHERE t.v <> EXCLUDED.v"
@@ -616,7 +617,7 @@ fn insert_on_conflict() {
 
 #[test]
 fn update_statements() {
-    // SET は予約語ではないが、AS なしの別名にはしない
+    // SET is not a reserved word, but it is not taken as an alias without AS
     assert_eq!(
         stmts("UPDATE t SET a = 1"),
         "(UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))))"
@@ -674,7 +675,7 @@ fn incomplete_dml_is_kept() {
     );
 }
 
-// ---- 文の区切りと未対応の文 ----
+// ---- Statement separators and unsupported statements ----
 
 #[test]
 fn statements_and_raw_statements() {
@@ -710,7 +711,7 @@ Root
     );
 }
 
-// ---- エラーからの回復 ----
+// ---- Error recovery ----
 
 #[test]
 fn recovers_inside_lists() {
@@ -722,7 +723,7 @@ fn recovers_inside_lists() {
         stmts("SELECT a b c, d FROM t"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a) (Alias b)) (Error c) , (TargetItem (ColumnRef d))) (FromClause FROM (TableRef t))))"
     );
-    // 括弧の中のエラーは閉じ括弧の手前で止まる
+    // An error inside parentheses stops before the closing parenthesis
     assert_eq!(
         stmts("SELECT (SELECT a b c) + 1"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (BinaryExpr (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a) (Alias b)) (Error c)))) )) + (Literal 1))))))"
@@ -739,7 +740,7 @@ fn recovers_from_missing_parts() {
         stmts("SELECT (a FROM t"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ParenExpr ( (ColumnRef a) (Error FROM t))))))"
     );
-    // 予約語は式にしない
+    // Reserved words are not parsed as expressions
     assert_eq!(
         stmts("SELECT a + FROM t"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (BinaryExpr (ColumnRef a) +))) (FromClause FROM (TableRef t))))"
@@ -774,13 +775,13 @@ fn unterminated_input_is_kept() {
     );
 }
 
-// ---- 関数・PL/pgSQL ----
+// ---- Functions and PL/pgSQL ----
 
-/// `DO $$<body>$$` の本体（区切りを除く）の S 式
+/// S-expression of the body of `DO $$<body>$$` (without the delimiters)
 fn pl(body: &str) -> String {
     let src = format!("DO $${body}$$");
     let root = parse_checked(&src);
-    let body = find(&root, NodeKind::FunctionBody).expect("本体が解析されていない");
+    let body = find(&root, NodeKind::FunctionBody).expect("body was not parsed");
     let inner = sexpr(body);
     inner
         .strip_prefix("(FunctionBody $$ ")
@@ -801,7 +802,7 @@ fn plpgsql_blocks_and_declarations() {
         pl("DECLARE a int; DECLARE b text COLLATE \"C\"; c CURSOR IS SELECT 1; BEGIN END"),
         "(PlBlock (PlDeclareSection DECLARE (PlDecl a (TypeName int) ;) DECLARE (PlDecl b (TypeName text) COLLATE \"C\" ;) (PlDecl c CURSOR IS (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ;)) BEGIN END)"
     );
-    // 最後の `;` は省略できる
+    // The final `;` may be omitted
     assert_eq!(pl("BEGIN NULL; END"), "(PlBlock BEGIN (PlNull NULL ;) END)");
 }
 
@@ -813,7 +814,7 @@ fn plpgsql_assignments_and_sql() {
         ),
         "(PlBlock BEGIN (PlAssign (ColumnRef x) := (Literal 1) ;) (PlAssign (ColumnRef y) = (Literal 2) ;) (PlAssign (SubscriptExpr (ColumnRef r . f) [ (Literal 1) ]) := (Literal 3) ;) (PlSqlStmt (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (IntoClause INTO STRICT x , y) (FromClause FROM (TableRef t)))) ;) (PlSqlStmt (UpdateStmt UPDATE (TableRef t) (SetClause SET (SetItem (ColumnRef a) = (Literal 1))) (ReturningClause RETURNING (TargetItem (ColumnRef a))) (IntoClause INTO x)) ;) (PlSqlStmt (CreateTableStmt CREATE TEMP TABLE z (TableElementList ( (ColumnDef i (TypeName int)) ))) ;) END)"
     );
-    // INTO は問い合わせの最後にも書ける
+    // INTO may also come at the end of the query
     assert_eq!(
         pl("BEGIN SELECT a FROM t INTO x; END"),
         "(PlBlock BEGIN (PlSqlStmt (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (FromClause FROM (TableRef t))) (IntoClause INTO x)) ;) END)"
@@ -830,7 +831,7 @@ fn plpgsql_control_flow() {
         pl("BEGIN CASE x WHEN 1, 2 THEN NULL; ELSE NULL; END CASE; END"),
         "(PlBlock BEGIN (PlCase CASE (ColumnRef x) (PlCaseWhen WHEN (Literal 1) , (Literal 2) THEN (PlNull NULL ;)) (PlElse ELSE (PlNull NULL ;)) END CASE ;) END)"
     );
-    // 問い合わせの FOR では LOOP を別名にしない
+    // In a query FOR loop, LOOP is not taken as an alias
     assert_eq!(
         pl(
             "BEGIN <<l>> FOR r IN SELECT a FROM t LOOP EXIT l WHEN r.a > 1; CONTINUE; END LOOP l; END"
@@ -891,25 +892,25 @@ fn plpgsql_exceptions() {
 
 #[test]
 fn plpgsql_recovers_from_errors() {
-    // `;` のない文は、次のブロックの区切りまでを Error にする
+    // A statement without `;` becomes an Error up to the next block delimiter
     assert_eq!(
         pl("BEGIN x := 1 y; IF a THEN NULL END IF; END"),
         "(PlBlock BEGIN (PlAssign (ColumnRef x) := (Literal 1) (Error y) ;) (PlIf IF (ColumnRef a) THEN (PlNull NULL) END IF ;) END)"
     );
-    // 対応のない ELSE は Error にして、END を探し続ける
+    // An unmatched ELSE becomes an Error and the search for END continues
     assert_eq!(
         pl("BEGIN ELSE NULL; END"),
         "(PlBlock BEGIN (Error ELSE) (PlNull NULL ;) END)"
     );
-    // 解釈できない文の先頭
+    // Uninterpretable start of a statement
     assert_eq!(pl("BEGIN ); END"), "(PlBlock BEGIN (Error )) ; END)");
-    // ブロックで始まらない本体
+    // A body that does not start with a block
     assert_eq!(pl("select 1"), "(Error select 1)");
 }
 
 #[test]
 fn stop_keywords_do_not_leak() {
-    // PL/pgSQL の外では LOOP も別名にできる
+    // Outside PL/pgSQL, LOOP can be an alias too
     assert_eq!(
         stmts("SELECT a loop FROM t"),
         "(SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a) (Alias loop))) (FromClause FROM (TableRef t))))"
@@ -924,7 +925,7 @@ fn create_function_statements() {
         ),
         "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( (Param a (TypeName int)) , (Param (TypeName int)) , (Param OUT b (TypeName double precision)) , (Param c (TypeName text) DEFAULT (Literal 'x')) , (Param d (TypeName int) = (Literal 1)) )) (ReturnsClause RETURNS SETOF (TypeName t)) (FunctionOption AS (FunctionBody $$ (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) $$)) (FunctionOption LANGUAGE sql) (FunctionOption STABLE))"
     );
-    // LANGUAGE が本体の後ろにあっても PL/pgSQL として解析する
+    // Parsed as PL/pgSQL even when LANGUAGE comes after the body
     assert_eq!(
         stmts("CREATE OR REPLACE PROCEDURE p() AS $x$ BEGIN END $x$ LANGUAGE plpgsql"),
         "(CreateFunctionStmt CREATE OR REPLACE PROCEDURE p (ParamList ( )) (FunctionOption AS (FunctionBody $x$ (PlBlock BEGIN END) $x$)) (FunctionOption LANGUAGE plpgsql))"
@@ -935,24 +936,25 @@ fn create_function_statements() {
         ),
         "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS TABLE (ParamList ( (Param a (TypeName int)) , (Param b (TypeName text)) ))) (FunctionOption RETURNS NULL ON NULL INPUT) (FunctionOption SECURITY DEFINER) (FunctionOption SET search_path = public , pg_temp) (FunctionOption NOT LEAKPROOF) (FunctionOption PARALLEL SAFE) (FunctionOption COST 10) (FunctionOption LANGUAGE sql) (AtomicBody BEGIN ATOMIC (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) ; (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 2))))) ; END))"
     );
-    // 型だけの引数（DEFAULT 付き・2 語の型）
+    // Type-only parameters (with DEFAULT, and a two-word type)
     assert_eq!(
         stmts(
             "CREATE FUNCTION f(int DEFAULT 1, double precision) RETURNS int LANGUAGE 'plpgsql' AS $$BEGIN END$$"
         ),
         "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( (Param (TypeName int) DEFAULT (Literal 1)) , (Param (TypeName double precision)) )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption LANGUAGE 'plpgsql') (FunctionOption AS (FunctionBody $$ (PlBlock BEGIN END) $$)))"
     );
-    // LANGUAGE がなければ SQL として解析する。LANGUAGE は文の終わりまでしか探さない
+    // Without LANGUAGE the body is parsed as SQL. LANGUAGE is searched for only up to the end of
+    // the statement
     assert_eq!(
         stmts("CREATE FUNCTION f() RETURNS int AS $$ BEGIN $$; DO LANGUAGE plpgsql $$BEGIN END$$"),
         "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS (FunctionBody $$ (TransactionStmt BEGIN) $$))) ; (DoStmt DO LANGUAGE plpgsql (FunctionBody $$ (PlBlock BEGIN END) $$))"
     );
-    // SQL 標準の本体 `RETURN expr`
+    // SQL-standard body `RETURN expr`
     assert_eq!(
         stmts("CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql RETURN a + 1"),
         "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( (Param a (TypeName int)) )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption LANGUAGE sql) (FunctionOption RETURN (BinaryExpr (ColumnRef a) + (Literal 1))))"
     );
-    // ほかの言語の本体や、引用符の本体はそのまま
+    // Bodies in other languages and quoted bodies are kept verbatim
     assert_eq!(
         stmts("CREATE FUNCTION f() RETURNS int AS $$ return 1 $$ LANGUAGE plpython3u"),
         "(CreateFunctionStmt CREATE FUNCTION f (ParamList ( )) (ReturnsClause RETURNS (TypeName int)) (FunctionOption AS $$ return 1 $$) (FunctionOption LANGUAGE plpython3u))"
@@ -969,11 +971,11 @@ fn do_and_call_statements() {
         stmts("DO LANGUAGE plpgsql $$BEGIN END$$; DO $$ x $$ LANGUAGE plperl; CALL s.p(1, a => 2)"),
         "(DoStmt DO LANGUAGE plpgsql (FunctionBody $$ (PlBlock BEGIN END) $$)) ; (DoStmt DO $$ x $$ LANGUAGE plperl) ; (CallStmt CALL (FuncCall s . p (ArgList ( (Literal 1) , (BinaryExpr (ColumnRef a) => (Literal 2)) ))))"
     );
-    // 閉じていない本体は解析しない
+    // An unclosed body is not parsed
     assert_eq!(stmts("DO $$ BEGIN"), "(DoStmt DO $$ BEGIN)");
 }
 
-// ---- DDL・MERGE ----
+// ---- DDL and MERGE ----
 
 #[test]
 fn create_table_statements() {
@@ -983,12 +985,12 @@ fn create_table_statements() {
         ),
         "(CreateTableStmt CREATE TEMP TABLE IF NOT EXISTS s . t (TableElementList ( (ColumnDef id (TypeName bigint) GENERATED ALWAYS AS IDENTITY (ExprList ( START WITH 10 )) PRIMARY KEY) , (ColumnDef key (TypeName text) NOT NULL DEFAULT (Literal 'x') CHECK (ParenExpr ( (BinaryExpr (ColumnRef key) <> (Literal '')) ))) , (ColumnDef p (TypeName bigint) REFERENCES parent (ExprList ( id )) ON DELETE SET NULL) , (ColumnDef g (TypeName int) GENERATED ALWAYS AS (ParenExpr ( (BinaryExpr (ColumnRef id) * (Literal 2)) )) STORED) , (TableConstraint CONSTRAINT u UNIQUE (ExprList ( key , p ))) , (TableConstraint LIKE other INCLUDING ALL) )) PARTITION BY RANGE (ExprList ( id )) WITH (ExprList ( fillfactor = 70 )))"
     );
-    // CREATE TABLE ... AS の問い合わせは WITH [NO] DATA の手前で終わる
+    // The query of CREATE TABLE ... AS ends before WITH [NO] DATA
     assert_eq!(
         stmts("CREATE TABLE t2 AS SELECT a FROM t WITH NO DATA"),
         "(CreateTableStmt CREATE TABLE t2 AS (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (ColumnRef a))) (FromClause FROM (TableRef t)))) WITH NO DATA)"
     );
-    // パーティションにも列の制約の並びを書ける
+    // A partition may also have a list of column constraints
     assert_eq!(
         stmts("CREATE TABLE p2 PARTITION OF p (CONSTRAINT c CHECK (x > 0)) FOR VALUES IN (1)"),
         "(CreateTableStmt CREATE TABLE p2 PARTITION OF p (TableElementList ( (TableConstraint CONSTRAINT c CHECK (ParenExpr ( (BinaryExpr (ColumnRef x) > (Literal 0)) ))) )) FOR VALUES IN (ExprList ( 1 )))"
@@ -1045,7 +1047,7 @@ fn merge_statements() {
         ),
         "(MergeStmt (WithClause WITH (Cte x AS (SubqueryExpr ( (SelectStmt (SimpleSelect (SelectClause SELECT (TargetItem (Literal 1))))) )))) MERGE INTO (TableRef t (Alias AS d)) USING (TableRef s) (JoinCondition ON (BinaryExpr (ColumnRef s . id) = (ColumnRef d . id))) (MergeWhenClause WHEN MATCHED AND (BinaryExpr (ColumnRef s . v) = (Literal 0)) THEN DELETE) (MergeWhenClause WHEN MATCHED THEN UPDATE (SetClause SET (SetItem (ColumnRef v) = (ColumnRef s . v)) , (SetItem (ColumnRef w) = (Literal 1)))) (MergeWhenClause WHEN NOT MATCHED BY TARGET THEN INSERT (ExprList ( (ColumnRef id) , (ColumnRef v) )) (ValuesClause VALUES (ExprList ( (ColumnRef s . id) , (ColumnRef s . v) )))) (MergeWhenClause WHEN NOT MATCHED BY SOURCE THEN DO NOTHING) (ReturningClause RETURNING (TargetItem (ColumnRef *))))"
     );
-    // 別名の USING は別名にしない。INSERT DEFAULT VALUES
+    // USING is not taken as an alias. INSERT DEFAULT VALUES
     assert_eq!(
         stmts(
             "MERGE INTO t USING (SELECT 1 AS id) s ON true WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
@@ -1054,12 +1056,13 @@ fn merge_statements() {
     );
 }
 
-// ---- 大きさ ----
+// ---- Size ----
 
-/// 無限ループの検出は「進まないまま先読みした回数」で数えるので、入力の大きさには上限がない
+/// Infinite-loop detection counts lookaheads made without progress, so there is no upper
+/// bound on the input size
 #[test]
 fn large_inputs_do_not_trip_the_progress_guard() {
-    // 先読みは 1 トークンあたり数十回あるので、この大きさで累計は 1,000 万回を超える
+    // There are dozens of lookaheads per token, so at this size the total exceeds 10 million
     let stmt = "select a, b, c from t1 join t2 on t1.id = t2.id where x = 1 and y in (1, 2, 3) order by a;\n";
     let src = stmt.repeat(40_000);
     let root = parse(&src);
@@ -1080,7 +1083,7 @@ fn create_trigger_statements() {
         ),
         "(CreateTriggerStmt CREATE TRIGGER t (TriggerClause BEFORE UPDATE OF a , b OR DELETE ON s . x) (TriggerClause FOR EACH ROW) (TriggerClause WHEN (ParenExpr ( (BinaryExpr (ColumnRef a) > (Literal 0)) ))) (TriggerClause EXECUTE FUNCTION (FuncCall f (ArgList ( (Literal 1) )))))"
     );
-    // 知らない語は次の句まで 1 つの Error にして先へ進む
+    // Unknown words become a single Error up to the next clause, and parsing continues
     assert_eq!(
         stmts("CREATE TRIGGER t AFTER INSERT ON x bogus words FOR EACH ROW"),
         "(CreateTriggerStmt CREATE TRIGGER t (TriggerClause AFTER INSERT ON x) (Error bogus words) (TriggerClause FOR EACH ROW))"

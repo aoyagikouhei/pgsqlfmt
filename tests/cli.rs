@@ -1,4 +1,4 @@
-//! CLI（`pgsqlfmt` バイナリ）を実際に起動して、ファイルの整形・確認の動きを確かめる。
+//! Runs the CLI (the `pgsqlfmt` binary) for real to check how it formats and checks files.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 const UNFORMATTED: &str = "select a, b from t where x = 1";
 const FORMATTED: &str = "SELECT\n    a\n  , b\nFROM t\nWHERE x = 1\n";
 
-/// テストごとの一時ディレクトリ（終わったら消す）
+/// A temporary directory per test (removed when done)
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -72,7 +72,7 @@ fn formats_stdin_to_stdout() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(stdout(&output), FORMATTED);
 
-    // `-` も標準入力。行幅も指定できる
+    // `-` is standard input too. The line width can be given as well
     let output = run(&["-w", "10", "-"], "select f(1, 2)", &dir.0);
     assert_eq!(stdout(&output), "SELECT f(\n    1\n  , 2\n)\n");
 }
@@ -96,7 +96,7 @@ fn write_rewrites_only_unformatted_files() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(read(&unformatted), FORMATTED);
     assert_eq!(read(&formatted), FORMATTED);
-    assert_eq!(stderr(&output), "整形しました: a.sql\n");
+    assert_eq!(stderr(&output), "formatted: a.sql\n");
     assert_eq!(stdout(&output), "");
 }
 
@@ -109,7 +109,7 @@ fn check_reports_unformatted_files_without_changing_them() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output),
-        "整形されていません: a.sql\n1 個のファイルが整形されていません\n"
+        "not formatted: a.sql\n1 file(s) not formatted\n"
     );
     assert_eq!(read(&unformatted), UNFORMATTED);
 
@@ -117,7 +117,7 @@ fn check_reports_unformatted_files_without_changing_them() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(stderr(&output), "");
 
-    // 標準入力も確かめられる
+    // Standard input can be checked too
     let output = run(&["--check"], UNFORMATTED, &dir.0);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
@@ -133,7 +133,7 @@ fn crlf_and_bom_files_keep_their_form() {
     let bom = format!("\u{FEFF}{FORMATTED}");
     let crlf_file = dir.file("crlf.sql", &crlf);
     let bom_file = dir.file("bom.sql", &bom);
-    // 整形済みなら --check は通り、--write は書き換えない
+    // Already formatted: --check passes and --write does not rewrite
     let output = run(&["--check", "crlf.sql", "bom.sql"], "", &dir.0);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let output = run(&["--write", "crlf.sql", "bom.sql"], "", &dir.0);
@@ -141,7 +141,7 @@ fn crlf_and_bom_files_keep_their_form() {
     assert_eq!(read(&crlf_file), crlf);
     assert_eq!(read(&bom_file), bom);
 
-    // 未整形なら、改行コードと BOM を保ったまま整形する
+    // Not formatted: the result keeps the line endings and the BOM
     let file = dir.file(
         "u.sql",
         &format!("\u{FEFF}{}", UNFORMATTED.replace(' ', "\r\n")),
@@ -178,13 +178,13 @@ fn directories_are_searched_for_sql_files() {
     dir.file("src/sub/c.sql", FORMATTED);
     dir.file("src/.hidden/d.sql", UNFORMATTED);
     dir.file("src/note.txt", UNFORMATTED);
-    // 拡張子は大文字小文字を区別しない
+    // The extension is matched case-insensitively
     dir.file("src/e.SQL", UNFORMATTED);
     let output = run(&["--check", "src"], "", &dir.0);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output),
-        "整形されていません: src/a.sql\n整形されていません: src/e.SQL\n整形されていません: src/sub/b.sql\n3 個のファイルが整形されていません\n"
+        "not formatted: src/a.sql\nnot formatted: src/e.SQL\nnot formatted: src/sub/b.sql\n3 file(s) not formatted\n"
     );
 
     let output = run(&["--write", "src"], "", &dir.0);
@@ -201,7 +201,7 @@ fn missing_files_are_reported_and_the_rest_are_processed() {
     let file = dir.file("a.sql", UNFORMATTED);
     let output = run(&["--write", "missing.sql", "a.sql"], "", &dir.0);
     assert_eq!(output.status.code(), Some(2));
-    assert!(stderr(&output).starts_with("missing.sql を読めませんでした: "));
+    assert!(stderr(&output).starts_with("cannot read missing.sql: "));
     assert_eq!(read(&file), FORMATTED);
 }
 
@@ -224,17 +224,18 @@ fn usage_errors() {
     ] {
         let output = run(args, "", &dir.0);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
-        assert!(stderr(&output).contains("使い方:"), "{args:?}");
+        assert!(stderr(&output).contains("Usage:"), "{args:?}");
     }
     let output = run(&["--help"], "", &dir.0);
     assert_eq!(output.status.code(), Some(0));
-    assert!(stdout(&output).starts_with("使い方:"));
+    assert!(stdout(&output).starts_with("Usage:"));
 }
 
 #[test]
 fn files_in_directories_are_processed_in_name_order() {
     let dir = TempDir::new();
-    // ディレクトリを読む順番はファイルシステムによって違うので、名前順に並べて処理する
+    // The order in which a directory is read depends on the file system, so files are sorted by
+    // name before processing
     let names = ["m", "z", "c", "k", "f", "a", "x", "q"];
     for name in names {
         dir.file(&format!("d/{name}.sql"), UNFORMATTED);
@@ -244,11 +245,11 @@ fn files_in_directories_are_processed_in_name_order() {
     sorted.sort();
     let expected: String = sorted
         .iter()
-        .map(|name| format!("整形されていません: d/{name}.sql\n"))
+        .map(|name| format!("not formatted: d/{name}.sql\n"))
         .collect();
     assert_eq!(
         stderr(&output),
-        format!("{expected}8 個のファイルが整形されていません\n")
+        format!("{expected}8 file(s) not formatted\n")
     );
 }
 

@@ -1,7 +1,7 @@
-//! キーワードの分類。いずれも小文字で持ち、大文字小文字を区別せずに比べる。
+//! Keyword classification. All lists are kept lowercase and compared case-insensitively.
 
-/// PostgreSQL の予約語（`src/include/parser/kwlist.h` の RESERVED_KEYWORD）。
-/// 列名や別名に AS なしでは使えない。
+/// PostgreSQL reserved words (RESERVED_KEYWORD in `src/include/parser/kwlist.h`).
+/// They cannot be used as a column name or alias without AS.
 const RESERVED: &[&str] = &[
     "all",
     "analyse",
@@ -83,7 +83,7 @@ const RESERVED: &[&str] = &[
     "with",
 ];
 
-/// 予約語だが、それだけで値になるもの（SQL の値関数）
+/// Reserved words that are values on their own (SQL value functions)
 const VALUE_KEYWORDS: &[&str] = &[
     "current_catalog",
     "current_date",
@@ -98,7 +98,7 @@ const VALUE_KEYWORDS: &[&str] = &[
     "user",
 ];
 
-/// SELECT の句の始まり。並びの終わりやエラーからの回復の目印にする。
+/// Keywords that start a clause of SELECT. They mark the end of a list and guide error recovery.
 pub(super) const CLAUSE_KEYWORDS: &[&str] = &[
     "from",
     "into",
@@ -115,11 +115,12 @@ pub(super) const CLAUSE_KEYWORDS: &[&str] = &[
     "intersect",
     "except",
     "returning",
-    // INSERT ... SELECT / VALUES の後ろの ON CONFLICT
+    // ON CONFLICT after INSERT ... SELECT / VALUES
     "on",
 ];
 
-/// FROM 句で結合を始めるキーワード。予約語ではないが、AS なしの表の別名にはできない。
+/// Keywords that start a join in the FROM clause. They are not reserved words, but cannot be
+/// used as a table alias without AS.
 pub(super) const JOIN_KEYWORDS: &[&str] = &[
     "join", "inner", "left", "right", "full", "outer", "cross", "natural",
 ];

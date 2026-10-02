@@ -3,7 +3,7 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/parser/dml.sql
 ---
--- 在庫の取り込み（UPSERT）
+-- stock import (UPSERT)
 WITH incoming AS (
     SELECT
         sku
@@ -32,7 +32,7 @@ SET
   , (shipped_at, carrier) = (now(), c.name)
 FROM carriers c
 WHERE c.id = o.carrier_id
-    AND o.status = 'packed' -- 梱包済みのみ
+    AND o.status = 'packed' -- packed only
 RETURNING o.id;
 
 DELETE FROM sessions s

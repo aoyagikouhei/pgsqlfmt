@@ -3,7 +3,7 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/parser/select_report.sql
 ---
--- 月別・顧客別の売上レポート
+-- monthly sales report per customer
 WITH monthly AS (
     SELECT
         c.id AS customer_id
@@ -21,7 +21,7 @@ SELECT
     m.customer_id
   , m.month
   , m.total
-  , rank() OVER (PARTITION BY m.month ORDER BY m.total DESC NULLS LAST) AS rnk /* 月内順位 */
+  , rank() OVER (PARTITION BY m.month ORDER BY m.total DESC NULLS LAST) AS rnk /* rank within the month */
   , CASE
         WHEN m.total > 10000 THEN 'gold'
         WHEN m.total > 1000 THEN 'silver'

@@ -1,4 +1,5 @@
-//! 文と句のレイアウト。句を行頭に置き、並びや条件を字下げして並べる。
+//! Layout of statements and clauses. Each clause starts a line, with its list or condition
+//! indented beneath it.
 
 use super::{Formatter, as_node, as_token, children, is_node, logical_op};
 use crate::lexer::{Token, TokenKind};
@@ -17,7 +18,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 問い合わせを構成する句（WITH・本体・集合演算・ORDER BY・LIMIT など）
+    /// A part of a query (WITH, the body, a set operation, ORDER BY, LIMIT, ...)
     pub(super) fn query_part(&mut self, node: &Node<'a>, base: usize) {
         match node.kind {
             NodeKind::WithClause => self.with_clause(node, base),
@@ -37,7 +38,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 行頭に置く句
+    /// A clause placed at the start of a line
     fn clause(&mut self, node: &Node<'a>, base: usize) {
         match node.kind {
             NodeKind::SelectClause
@@ -54,7 +55,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `left UNION ALL right`。演算子を独立した行に置く。
+    /// `left UNION ALL right`. The operator goes on its own line.
     fn set_operation(&mut self, node: &Node<'a>, base: usize) {
         let mut seen_left = false;
         let mut on_operator_line = false;
@@ -80,12 +81,13 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `WITH a AS (...)` の 2 つ目以降の CTE は、行頭のカンマから始める
+    /// `WITH a AS (...)`: the second and later CTEs start with a leading comma
     fn with_clause(&mut self, node: &Node<'a>, base: usize) {
         let elements = children(node);
         for (i, element) in elements.iter().enumerate() {
             if let Some(comma) = as_token(element).filter(|t| t.kind == TokenKind::Comma) {
-                // 2 つ目以降の CTE は、CTE の名前と同じ位置から（行頭カンマは CTE の名前の左に詰めない）
+                // The second and later CTEs start at the same column as the CTE name (the leading
+                // comma is not pulled to the left of it)
                 self.list_separator(comma, first_token(&elements[i + 1..]), base, 0);
                 continue;
             }
@@ -93,11 +95,13 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `KEYWORD item` / `KEYWORD\n    item\n  , item` の形の句。
-    /// 項目が 1 つなら句と同じ行に、2 つ以上なら 1 行ずつ字下げして行頭カンマで並べる。
+    /// A clause of the form `KEYWORD item` / `KEYWORD\n    item\n  , item`.
+    /// A single item stays on the keyword's line; two or more go one per line, indented, with
+    /// leading commas.
     pub(super) fn list_clause(&mut self, node: &Node<'a>, base: usize) {
         let elements = children(node);
-        // 先頭のキーワード（SELECT DISTINCT ON (...) の括弧と、PL/pgSQL の `SELECT INTO target` を含む）
+        // The leading keywords (including the parentheses of SELECT DISTINCT ON (...) and the
+        // PL/pgSQL `SELECT INTO target`)
         let header_len = elements
             .iter()
             .position(|e| {
@@ -145,8 +149,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `WHERE cond` / `HAVING cond` / `ON cond`。
-    /// 条件の中の複数行の式（副問い合わせなど）は、AND / OR の行と同じ 1 段深い位置を基準にする。
+    /// `WHERE cond` / `HAVING cond` / `ON cond`.
+    /// A multi-line expression inside the condition (a subquery, say) is based at the same
+    /// position as the AND / OR lines, one level deeper.
     pub(super) fn condition_clause(&mut self, node: &Node<'a>, base: usize) {
         for element in children(node) {
             match element {
@@ -159,7 +164,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// 最上位の AND / OR の並びを、演算子ごとに改行して 1 段深く並べる
+    /// Lays out the top-level AND / OR chain, breaking before each operator, one level deeper
     fn condition(&mut self, node: &Node<'a>, base: usize) {
         let Some(op) = logical_op(node).filter(|_| split_binary(node).is_some()) else {
             self.node(node);
@@ -205,7 +210,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// `ON CONFLICT (...) DO UPDATE` の SET / WHERE は 1 段深くする
+    /// SET / WHERE of `ON CONFLICT (...) DO UPDATE` go one level deeper
     fn on_conflict(&mut self, node: &Node<'a>, base: usize) {
         let mut after_do = false;
         for element in children(node) {
@@ -256,7 +261,7 @@ impl<'a> Formatter<'a> {
     }
 }
 
-/// 並びの最初の意味のあるトークン
+/// The first significant token of the list
 fn first_token<'a>(elements: &[&Element<'a>]) -> Option<Token<'a>> {
     elements.first().and_then(|e| match e {
         Element::Token(t) => Some(*t),
@@ -264,7 +269,7 @@ fn first_token<'a>(elements: &[&Element<'a>]) -> Option<Token<'a>> {
     })
 }
 
-/// `left op right` の形なら、その 3 つ
+/// The three parts if the node has the form `left op right`
 pub(super) fn split_binary<'n, 'a>(
     node: &'n Node<'a>,
 ) -> Option<(&'n Node<'a>, &'n Token<'a>, &'n Node<'a>)> {
@@ -274,15 +279,16 @@ pub(super) fn split_binary<'n, 'a>(
     }
 }
 
-/// `a AND b AND c`（左結合の木）を、被演算子と演算子の並びにする。
-/// `node` は `split_binary` できること。左辺が同じ演算子でも形が崩れていれば、1 つの被演算子として扱う。
+/// Flattens `a AND b AND c` (a left-associative tree) into lists of operands and operators.
+/// `node` must be `split_binary`-able. A left side with the same operator but a broken shape is
+/// treated as a single operand.
 fn flatten_chain<'n, 'a>(
     node: &'n Node<'a>,
     op: &str,
     operands: &mut Vec<&'n Node<'a>>,
     operators: &mut Vec<&'n Token<'a>>,
 ) {
-    let (left, operator, right) = split_binary(node).expect("split_binary できる");
+    let (left, operator, right) = split_binary(node).expect("split_binary succeeds");
     if logical_op(left).as_deref() == Some(op) && split_binary(left).is_some() {
         flatten_chain(left, op, operands, operators);
     } else {

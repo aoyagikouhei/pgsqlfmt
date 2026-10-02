@@ -141,7 +141,7 @@ Root
                 String "'{}'"
               Semicolon ";"
           Keyword "begin"
-          LineComment "-- 残高の確認"
+          LineComment "-- check the balance"
           PlSqlStmt
             SelectStmt
               SimpleSelect

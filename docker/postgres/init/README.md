@@ -1,3 +1,3 @@
-このディレクトリの `*.sql` / `*.sh` は、DB ボリュームが空の初回起動時にだけ
-ファイル名順で実行されます（postgres 公式イメージの `/docker-entrypoint-initdb.d`）。
-変更を反映したいときは `make db-reset` でボリュームごと作り直してください。
+The `*.sql` / `*.sh` files in this directory are executed in file-name order only on the
+first start, when the database volume is empty (the postgres official image's `/docker-entrypoint-initdb.d`).
+To apply changes, recreate the volume with `make db-reset`.

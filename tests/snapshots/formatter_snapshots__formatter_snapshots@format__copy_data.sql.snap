@@ -3,7 +3,7 @@ source: tests/formatter_snapshots.rs
 expression: format(&src)
 input_file: tests/fixtures/format/copy_data.sql
 ---
--- COPY のデータは入力のまま残し、後ろの文は整形する
+-- COPY data stays verbatim; later statements are formatted
 COPY accounts (id, owner) FROM STDIN;
 1	it's
 2	a;b

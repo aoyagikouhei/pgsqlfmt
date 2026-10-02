@@ -1,4 +1,4 @@
--- 実機検証用。tests/postgres/schema.sql の上で、すべての文がエラーなく実行できること。
+-- Real-PostgreSQL verification: every statement must run error-free on tests/postgres/schema.sql.
 with totals as (
   select o.customer_id, sum(o.amount) filter (where o.status <> 'cancelled') as total, count(*) cnt
   from orders o group by o.customer_id
@@ -48,14 +48,14 @@ delete from sessions s using users u where u.id = s.user_id and not u.active ret
 
 select sku, qty from stock order by sku;
 
--- 改行を挟んだ文字列はつながる
+-- strings separated by a newline are concatenated
 select 'con'
   'tinued' as s, 1;
 
--- 抽出方法は入力のまま、TABLESAMPLE と REPEATABLE はキーワード
+-- sampling method stays verbatim; TABLESAMPLE and REPEATABLE are keywords
 select c.id from customers as c tablesample bernoulli (100) repeatable (1) where c.id > 0 order by c.id;
 
--- ユーティリティ文（外側のトランザクションを壊す BEGIN / COMMIT は入れない）
+-- utility statements (no BEGIN / COMMIT, which would break the outer transaction)
 set search_path = public, pg_catalog;
 set local work_mem to '64MB';
 show work_mem;

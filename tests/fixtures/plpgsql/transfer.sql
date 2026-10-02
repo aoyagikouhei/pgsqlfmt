@@ -12,7 +12,7 @@ declare
   k constant int := 10;
   v_ids bigint[] default '{}';
 begin
-  -- 残高の確認
+  -- check the balance
   select balance into strict v_balance from accounts where id = p_from for update;
   if v_balance < p_amount then
     raise exception 'insufficient balance: % < %', v_balance, p_amount using errcode = 'P0001', hint = 'check';

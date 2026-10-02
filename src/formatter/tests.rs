@@ -1,14 +1,18 @@
 use super::{CommaStyle, FormatOptions, KeywordCase, format, format_with_options};
 
-/// 整形結果が期待どおりで、もう一度整形しても変わらないこと
+/// The formatted output matches `expected`, and formatting it again leaves it unchanged
 #[track_caller]
 fn check(input: &str, expected: &str) {
     let formatted = format(input);
-    assert_eq!(formatted, expected, "\n--- 実際 ---\n{formatted}");
-    assert_eq!(format(&formatted), formatted, "2 回目の整形で変わった");
+    assert_eq!(formatted, expected, "\n--- actual ---\n{formatted}");
+    assert_eq!(
+        format(&formatted),
+        formatted,
+        "changed on the second formatting pass"
+    );
 }
 
-/// 行幅を指定した `check`
+/// `check` with an explicit line width
 #[track_caller]
 fn check_width(max_width: usize, input: &str, expected: &str) {
     let options = FormatOptions {
@@ -16,23 +20,23 @@ fn check_width(max_width: usize, input: &str, expected: &str) {
         ..FormatOptions::default()
     };
     let formatted = format_with_options(input, &options);
-    assert_eq!(formatted, expected, "\n--- 実際 ---\n{formatted}");
+    assert_eq!(formatted, expected, "\n--- actual ---\n{formatted}");
     assert_eq!(
         format_with_options(&formatted, &options),
         formatted,
-        "2 回目の整形で変わった"
+        "changed on the second formatting pass"
     );
 }
 
-/// 設定を指定した `check`
+/// `check` with explicit options
 #[track_caller]
 fn check_with(options: FormatOptions, input: &str, expected: &str) {
     let formatted = format_with_options(input, &options);
-    assert_eq!(formatted, expected, "\n--- 実際 ---\n{formatted}");
+    assert_eq!(formatted, expected, "\n--- actual ---\n{formatted}");
     assert_eq!(
         format_with_options(&formatted, &options),
         formatted,
-        "2 回目の整形で変わった"
+        "changed on the second formatting pass"
     );
 }
 
@@ -53,20 +57,22 @@ fn leading_bom_is_kept() {
 
 #[test]
 fn newline_style_follows_the_input() {
-    // 最初の改行が CRLF なら、出力の改行もすべて CRLF（文字列やコメントの中の改行はもとから入力のまま）
+    // If the first newline is CRLF, every output newline is CRLF too (newlines inside strings and
+    // comments are verbatim anyway)
     check(
         "select a, -- c\r\n b from t where x = 1\r\n\r\nand y = 2;\r\n\r\n\r\nselect 'a\r\nb';",
         "SELECT\r\n    a -- c\r\n  , b\r\nFROM t\r\nWHERE x = 1\r\n    AND y = 2;\r\n\r\nSELECT 'a\r\nb';\r\n",
     );
-    // 改行がなければ LF
+    // No newline in the input means LF
     check("select 1", "SELECT 1\n");
-    // 混在していれば最初の改行に合わせる
+    // Mixed newlines follow the first one
     check("select 1;\nselect 2;\r\n", "SELECT 1;\nSELECT 2;\n");
 }
 
 #[test]
 fn unterminated_token_at_the_end_is_left_alone() {
-    // 閉じていない文字列・コメントの中身（最後の空白を含む）を変えず、改行も足さない
+    // The contents of an unterminated string or comment (including trailing whitespace) are kept,
+    // and no newline is appended
     assert_eq!(format("select 'abc  "), "SELECT 'abc  ");
     assert_eq!(format("select 1 /* a\n  "), "SELECT 1 /* a\n  ");
     assert_eq!(format("select $$x "), "SELECT $$x ");
@@ -151,7 +157,7 @@ WHERE x IS NOT NULL
     AND y = TRUE
 ",
     );
-    // 型名の中の語は型名の一部として入力のまま
+    // Words inside a type name are part of the type name and stay verbatim
     check(
         "select x::timestamp with time zone, cast(y as double precision)",
         "\
@@ -174,7 +180,7 @@ WHERE a = 1
     AND d
 ",
     );
-    // AND は OR より強いので、最上位は OR
+    // AND binds tighter than OR, so the top level is OR
     check(
         "select 1 where a and b or c",
         "\
@@ -210,12 +216,12 @@ FROM a
     CROSS JOIN d
 ",
     );
-    // FROM の関数も、関数名と括弧の間に空白を入れない
+    // Functions in FROM also get no space between the name and the parenthesis
     check(
         "select * from generate_series(1, 3) g",
         "SELECT *\nFROM generate_series(1, 3) g\n",
     );
-    // 括弧で囲んだ結合は、中身を 1 段深くする
+    // A parenthesized join has its contents indented one level deeper
     check(
         "select * from (a join b on true) j",
         "\
@@ -227,7 +233,7 @@ FROM (
 ) j
 ",
     );
-    // FROM の項目が複数なら、JOIN はその項目より 1 段深い
+    // With multiple FROM items, JOIN is one level deeper than the items
     check(
         "select * from a join b on true, c",
         "\
@@ -262,7 +268,7 @@ WHERE x IN (
     )
 ",
     );
-    // 行頭カンマの項目の中では、項目の位置を基準にする
+    // Inside a leading-comma item, the item's position is the base for indentation
     check(
         "select a, (select 1) b",
         "\
@@ -293,7 +299,8 @@ END AS v
 
 #[test]
 fn nested_with_clauses() {
-    // 2 つ目以降の CTE のカンマは、深い位置でも CTE の名前と同じ列に置く
+    // The comma before the second and later CTEs goes in the same column as the CTE name, even
+    // when nested deeper
     check(
         "select * from (with a as (select 1), b as (select 2) select 1) q",
         "\
@@ -384,7 +391,7 @@ ON CONFLICT ON CONSTRAINT pk DO UPDATE
         "insert into t default values",
         "INSERT INTO t DEFAULT VALUES\n",
     );
-    // DO より前の WHERE（競合の対象の条件）は同じ行
+    // A WHERE before DO (the conflict target's condition) stays on the same line
     check(
         "insert into t values (1) on conflict (a) where b do nothing",
         "INSERT INTO t\nVALUES (1)\nON CONFLICT (a) WHERE b DO NOTHING\n",
@@ -450,7 +457,7 @@ SELECT
 
 #[test]
 fn string_continuations_keep_their_newlines() {
-    // 同じ行に並べると構文エラーになるので、続きは次の行に書く
+    // Putting them on one line is a syntax error, so the continuation goes on the next line
     check(
         "select 'a'\n'b' as s, 1",
         "SELECT\n    'a'\n        'b' AS s\n  , 1\n",
@@ -459,7 +466,7 @@ fn string_continuations_keep_their_newlines() {
 
 #[test]
 fn prefix_operator_does_not_merge_with_operand() {
-    // `--a` にするとコメントになり、`-@a` は別の演算子になる
+    // `--a` would become a comment, and `-@a` would be a different operator
     check(
         "select - -a, - @ b, -(1)",
         "\
@@ -495,8 +502,8 @@ fn statements_are_separated_and_blank_lines_kept() {
 #[test]
 fn blank_lines_around_comments_are_kept() {
     check(
-        "select 1;\n\n-- 区切り\n\nselect 2;\n-- 説明\nselect 3",
-        "SELECT 1;\n\n-- 区切り\n\nSELECT 2;\n-- 説明\nSELECT 3\n",
+        "select 1;\n\n-- separator\n\nselect 2;\n-- note\nselect 3",
+        "SELECT 1;\n\n-- separator\n\nSELECT 2;\n-- note\nSELECT 3\n",
     );
     check("select 1;\n\n\n-- end", "SELECT 1;\n\n-- end\n");
 }
@@ -504,8 +511,8 @@ fn blank_lines_around_comments_are_kept() {
 #[test]
 fn raw_statements_are_kept_verbatim() {
     check(
-        "vacuum t\n  (a) -- 対象\n;\nselect 1",
-        "vacuum t\n  (a) -- 対象\n;\nSELECT 1\n",
+        "vacuum t\n  (a) -- target\n;\nselect 1",
+        "vacuum t\n  (a) -- target\n;\nSELECT 1\n",
     );
 }
 
@@ -533,7 +540,7 @@ WHERE x -- after x
 -- tail
 ",
     );
-    // 項目の前の独立した行のコメントは、行頭カンマより前に出す
+    // A comment on its own line before an item goes before the leading comma
     check(
         "select a,\n  -- before b\n  b,\n  /* c1 */\n  /* c2 */ c\nfrom t",
         "\
@@ -547,52 +554,54 @@ FROM t
 ",
     );
     check(
-        "with a as (select 1),\n-- b の説明\nb as (select 2) select 1",
+        "with a as (select 1),\n-- about b\nb as (select 2) select 1",
         "\
 WITH a AS (
     SELECT 1
 )
--- b の説明
+-- about b
 , b AS (
     SELECT 2
 )
 SELECT 1
 ",
     );
-    // 同じ行に並んでいたコメントは同じ行のまま
+    // Comments that shared a line stay on one line
     check(
         "select 1\n/* A */ /* B */\nfrom t",
         "SELECT 1\n/* A */ /* B */\nFROM t\n",
     );
-    // 行コメントで終わる行には、後ろのコメントを続けない（行コメントに飲み込まれる）
+    // Nothing follows a line comment on the same line (it would be swallowed by the comment)
     check(
         "select a -- x\n, -- y\nb",
         "SELECT\n    a -- x\n  , -- y\n    b\n",
     );
-    // 行コメントの後ろの短い式は折り返さない
+    // A short expression after a line comment is not wrapped
     check(
         "select 1 where -- c\n a = 1",
         "SELECT 1\nWHERE -- c\n    a = 1\n",
     );
-    // 行コメントを含む式は 1 行にできないので、演算子の前で折り返す
+    // An expression containing a line comment cannot fit on one line, so it wraps before the
+    // operator
     check(
         "select 1 + -- x\n/* y */ 2",
         "SELECT 1\n    + -- x\n    /* y */ 2\n",
     );
-    // CTE のカンマの行末コメントは、前の CTE の行末に残す
+    // A trailing comment after a CTE's comma stays at the end of the previous CTE
     check(
-        "with a as (select 1), -- a の後\nb as (select 2) select 1",
+        "with a as (select 1), -- after a\nb as (select 2) select 1",
         "\
 WITH a AS (
     SELECT 1
-) -- a の後
+) -- after a
 , b AS (
     SELECT 2
 )
 SELECT 1
 ",
     );
-    // 式の途中の行コメントの後ろは改行する（1 行にできないので折り返す）
+    // A newline follows a line comment in the middle of an expression (it cannot fit on one line,
+    // so it wraps)
     check("select a + -- c\n b", "SELECT a\n    + -- c\n    b\n");
     check("select /* x */ 1 /* y */", "SELECT /* x */ 1 /* y */\n");
 }
@@ -602,14 +611,14 @@ fn broken_input_is_kept() {
     check("select (a from t", "SELECT (a from t\n");
     check("select 1) from t", "SELECT 1\n) from t\n");
     check("select exists ()", "SELECT EXISTS ()\n");
-    // 右辺のない AND は、それ全体を 1 つの被演算子にする
+    // An AND with no right-hand side is treated as a single operand as a whole
     check(
         "select 1 where a and and b",
         "SELECT 1\nWHERE a AND\n    AND b\n",
     );
 }
 
-// ---- 関数・PL/pgSQL ----
+// ---- Functions and PL/pgSQL ----
 
 #[test]
 fn create_function_options_are_one_per_line() {
@@ -627,12 +636,12 @@ SELECT 1
 $$
 ",
     );
-    // SQL の本体の文の間の空行は残す
+    // Blank lines between statements in a SQL body are kept
     check(
         "create function f() returns int language sql as $$\nselect 1;\n\nselect 2;\n$$",
         "CREATE FUNCTION f()\nRETURNS int\nLANGUAGE sql\nAS $$\nSELECT 1;\n\nSELECT 2;\n$$\n",
     );
-    // ほかの言語の本体はそのまま
+    // Bodies in other languages are kept verbatim
     check(
         "create function f() returns int as $$\n  return 1\n$$ language plpython3u",
         "CREATE FUNCTION f()\nRETURNS int\nAS $$\n  return 1\n$$\nLANGUAGE plpython3u\n",
@@ -728,7 +737,7 @@ END
 $$
 ",
     );
-    // INTO を項目より前に書く `SELECT INTO target ...` は、SELECT の行に続ける
+    // `SELECT INTO target ...`, with INTO before the items, continues on the SELECT line
     check(
         "do $$ begin select into strict r * from t; select into a, b x, y from t; end $$",
         "\
@@ -763,14 +772,14 @@ $$
 #[test]
 fn plpgsql_statements_keep_blank_lines_and_comments() {
     check(
-        "do $$\nbegin\n\n  -- 最初\n  a := 1; -- 行末\n\n  /* 空行のあと */\n  b := 2;\nend\n$$",
+        "do $$\nbegin\n\n  -- first\n  a := 1; -- eol\n\n  /* after blank */\n  b := 2;\nend\n$$",
         "\
 DO $$
 BEGIN
-    -- 最初
-    a := 1; -- 行末
+    -- first
+    a := 1; -- eol
 
-    /* 空行のあと */
+    /* after blank */
     b := 2;
 END
 $$
@@ -809,16 +818,16 @@ CALL p(1)
     );
 }
 
-// ---- 行幅による折り返し ----
+// ---- Wrapping by line width ----
 
 #[test]
 fn default_width_is_80() {
-    // ちょうど 80 桁は折り返さず、81 桁で折り返す
+    // Exactly 80 columns is not wrapped; 81 columns is
     let fits = format!("SELECT f(1, {})\n", "a".repeat(80 - "SELECT f(1, )".len()));
     assert_eq!(format(&fits), fits);
     let long = format!("SELECT f(1, {})", "a".repeat(81 - "SELECT f(1, )".len()));
     assert!(format(&long).starts_with("SELECT f(\n"));
-    // 項目が 1 つなら、行幅を超えても折り返さない
+    // A single item is not wrapped even when it exceeds the line width
     let single = format!("SELECT f({})", "a".repeat(81 - "SELECT f()".len()));
     assert_eq!(format(&single), format!("{single}\n"));
 }
@@ -836,7 +845,7 @@ SELECT coalesce(
 ) AS name
 ",
     );
-    // 外側を折り返したあと、内側が収まれば 1 行のまま
+    // Once the outer list is wrapped, inner lists that fit stay on one line
     check_width(
         30,
         "select f(g(a, b), h(c, d), i(e, f))",
@@ -848,7 +857,7 @@ SELECT f(
 )
 ",
     );
-    // 内側も収まらなければ、さらに折り返す
+    // If the inner list does not fit either, it wraps too
     check_width(
         20,
         "select f(g(aaaa, bbbb, cccc), 1)",
@@ -923,7 +932,7 @@ SELECT first_name
     || last_name AS full_name
 ",
     );
-    // WHERE の条件の中の式は、AND の行よりさらに 1 段深く折り返す
+    // An expression inside a WHERE condition wraps one level deeper than the AND line
     check_width(
         30,
         "select 1 where a = 1 and total_amount + tax_amount > limit_amount",
@@ -973,10 +982,10 @@ $$
 fn comments_in_broken_lists_stay_with_items() {
     check_width(
         30,
-        "select f(aaaa, -- a の説明\n bbbb, cccc)",
+        "select f(aaaa, -- about a\n bbbb, cccc)",
         "\
 SELECT f(
-    aaaa -- a の説明
+    aaaa -- about a
   , bbbb
   , cccc
 )
@@ -986,15 +995,15 @@ SELECT f(
 
 #[test]
 fn lists_containing_multiline_parts_are_broken() {
-    // 副問い合わせは複数行になるので、それを含む引数の並びは折り返す。
-    // 測っているあいだに中のコメントを動かさない
+    // A subquery spans multiple lines, so an argument list containing one wraps.
+    // Comments inside it must not be moved while measuring
     check(
-        "select coalesce((select a, -- a の説明\n b from t), 0)",
+        "select coalesce((select a, -- about a\n b from t), 0)",
         "\
 SELECT coalesce(
     (
         SELECT
-            a -- a の説明
+            a -- about a
           , b
         FROM t
     )
@@ -1002,20 +1011,21 @@ SELECT coalesce(
 )
 ",
     );
-    // 複数行の文字列や、前に空行のあるコメントを含む並びも 1 行にはしない
+    // A list containing a multi-line string, or a comment preceded by a blank line, is not put on
+    // one line either
     check("select f('a\nb', c)", "SELECT f(\n    'a\nb'\n  , c\n)\n");
     check(
         "select f(a,\n\n/* c */ b)",
         "SELECT f(\n    a\n  ,\n\n    /* c */ b\n)\n",
     );
-    // 独立した行のコメントは、行頭カンマより前に出す
+    // A comment on its own line goes before the leading comma
     check_width(
         20,
-        "select f(aaaa,\n-- b の前\nbbbb, cccc)",
+        "select f(aaaa,\n-- before b\nbbbb, cccc)",
         "\
 SELECT f(
     aaaa
-    -- b の前
+    -- before b
   , bbbb
   , cccc
 )
@@ -1025,7 +1035,7 @@ SELECT f(
 
 #[test]
 fn wide_characters_count_as_two_columns() {
-    // 全角 10 文字は 20 桁なので 35 桁（文字数で数えると 25 桁）
+    // 10 full-width characters are 20 columns, so this is 35 columns (25 if counted by characters)
     check_width(
         35,
         "select f(1, 'あいうえおかきくけこ')",
@@ -1038,11 +1048,11 @@ fn wide_characters_count_as_two_columns() {
     );
 }
 
-// ---- DDL・MERGE ----
+// ---- DDL and MERGE ----
 
 #[test]
 fn create_table_layout() {
-    // 列が 1 つでも 1 行ずつ
+    // One column per line, even with a single column
     check(
         "create table t (id int)",
         "CREATE TABLE t (\n    id int\n)\n",
@@ -1073,7 +1083,7 @@ fn index_view_alter_drop_layout() {
         "create view v as select a from t with local check option",
         "CREATE VIEW v AS\nSELECT a\nFROM t\nWITH LOCAL CHECK OPTION\n",
     );
-    // 操作が 1 つなら 1 行、2 つ以上なら行頭カンマ
+    // A single action stays on one line; two or more use leading commas
     check(
         "alter table t add column c int",
         "ALTER TABLE t ADD COLUMN c int\n",
@@ -1108,7 +1118,7 @@ WHEN NOT MATCHED BY SOURCE THEN
     );
 }
 
-// ---- 設定 ----
+// ---- Options ----
 
 const SAMPLE: &str = "select a, b from t join u on t.id = u.id where x = 1 and y = 2";
 
@@ -1209,46 +1219,47 @@ ALTER TABLE t
     DROP COLUMN d
 ",
     );
-    // コメントは項目に付いたまま
+    // Comments stay attached to their items
     check_with(
         options,
-        "select a, -- a の説明\n-- b の前\nb",
-        "SELECT\n    a, -- a の説明\n    -- b の前\n    b\n",
+        "select a, -- about a\n-- before b\nb",
+        "SELECT\n    a, -- about a\n    -- before b\n    b\n",
     );
 }
 
 #[test]
 fn copy_from_stdin_data_is_kept_as_is() {
-    // データ行の引用符やセミコロンで、後ろの文の整形が止まらない
+    // Quotes and semicolons in data rows do not stop the following statements from being formatted
     check(
         "copy t (a, b) from stdin;\nit's;\tx\n\\.\nselect   2 from t;\n",
         "COPY t (a, b) FROM STDIN;\nit's;\tx\n\\.\nSELECT 2\nFROM t;\n",
     );
-    // 空行・行末の空白もデータのまま。終わりの印の後の空行は残る
+    // Blank lines and trailing whitespace are kept as data. The blank line after the end marker
+    // is kept
     check(
         "COPY t FROM STDIN WITH (FORMAT csv);\n\n1, 'a' \n\\.\n\nselect 1;\n",
         "COPY t FROM STDIN WITH (FORMAT csv);\n\n1, 'a' \n\\.\n\nSELECT 1;\n",
     );
-    // 終わりの印がなければ入力の終わりまでがデータ
+    // Without an end marker, everything up to the end of the input is data
     check(
         "copy t from stdin;\n1\t2\n'\n",
         "COPY t FROM STDIN;\n1\t2\n'\n",
     );
-    // 2 つ目以降の COPY のデータも入力のまま
+    // The data of the second and later COPY statements is verbatim too
     check(
         "copy a from stdin;\n1\n\\.\ncopy b from stdin;\nselect   1  ;\n2\tdon't\n\\.\nselect   1;\n",
         "COPY a FROM STDIN;\n1\n\\.\nCOPY b FROM STDIN;\nselect   1  ;\n2\tdon't\n\\.\nSELECT 1;\n",
     );
-    // 終わりの印がなければ、行末のタブ（空の列）や空行もデータに残す
+    // Without an end marker, trailing tabs (empty columns) and blank lines stay in the data
     check("copy t from stdin;\n1\t\n", "COPY t FROM STDIN;\n1\t\n");
     check("copy t from stdin;\n\t\n", "COPY t FROM STDIN;\n\t\n");
     check("copy t from stdin;\n1\n\n", "COPY t FROM STDIN;\n1\n\n");
-    // 括弧の中の FROM stdin は COPY のデータの印ではない
+    // FROM stdin inside parentheses does not mark COPY data
     check(
         "copy (select * from stdin) to stdout;\nselect   1;\n",
         "COPY (\n    SELECT *\n    FROM stdin\n) TO STDOUT;\nSELECT 1;\n",
     );
-    // FROM STDIN でない COPY の後ろは普通の文
+    // What follows a COPY that is not FROM STDIN is an ordinary statement
     check(
         "copy t to stdout;\nselect 1;\n",
         "COPY t TO STDOUT;\nSELECT 1;\n",
@@ -1303,12 +1314,13 @@ INSTEAD OF INSERT ON v
 FOR EACH ROW
 EXECUTE FUNCTION g();
 ",
-    ); // UPDATE OF の列の後ろのイベントもキーワード
+    ); // The event after the UPDATE OF columns is a keyword too
     check(
         "create trigger t before update of a, b or delete on t for each row execute function f()",
         "CREATE TRIGGER t\nBEFORE UPDATE OF a, b OR DELETE ON t\nFOR EACH ROW\nEXECUTE FUNCTION f()\n",
     );
-    // 解釈できない部分（psql の変数など）は分けずに、前の句と同じ行にそのまま書く
+    // Unparsable parts (such as psql variables) are not split off; they stay verbatim on the same
+    // line as the preceding clause
     check(
         "create trigger t before insert on :tbl for each row execute function :fn();",
         "CREATE TRIGGER t\nBEFORE INSERT ON :tbl\nFOR EACH ROW\nEXECUTE FUNCTION :fn();\n",
@@ -1325,7 +1337,7 @@ fn comment_on_statements() {
         "comment on table public.t is 'x';\ncomment on column t.c is null;\ncomment on materialized view mv is E'a\\'b';",
         "COMMENT ON TABLE public.t IS 'x';\nCOMMENT ON COLUMN t.c IS NULL;\nCOMMENT ON MATERIALIZED VIEW mv IS E'a\\'b';\n",
     );
-    // 引数の括弧は名前に続ける。ON 表は同じ行
+    // The argument parenthesis follows the name directly. ON table stays on the same line
     check(
         "comment on function s.f(int, text) is 'f';\ncomment on constraint c on t is 'x';\ncomment on trigger trg on t is $$x$$;",
         "COMMENT ON FUNCTION s.f(int, text) IS 'f';\nCOMMENT ON CONSTRAINT c ON t IS 'x';\nCOMMENT ON TRIGGER trg ON t IS $$x$$;\n",
@@ -1334,7 +1346,7 @@ fn comment_on_statements() {
         "comment on cast (text as int4) is 'x';\ncomment on large object 123 is 'x';\ncomment on operator + (int, int) is 'x';",
         "COMMENT ON CAST (text AS int4) IS 'x';\nCOMMENT ON LARGE OBJECT 123 IS 'x';\nCOMMENT ON OPERATOR + (int, int) IS 'x';\n",
     );
-    // オブジェクトの種類と同じ綴りの名前はそのまま
+    // Names spelled like an object kind are kept as names
     check(
         "comment on table data is 'x';\ncomment on column trigger.x is 'x';\ncomment on schema schema is 'x';",
         "COMMENT ON TABLE data IS 'x';\nCOMMENT ON COLUMN trigger.x IS 'x';\nCOMMENT ON SCHEMA schema IS 'x';\n",
@@ -1343,7 +1355,7 @@ fn comment_on_statements() {
         "comment on transform for text language plperl is 'a';\ncomment on operator family text using btree is 'a';\ncomment on constraint c on domain d is 'a';",
         "COMMENT ON TRANSFORM FOR text LANGUAGE plperl IS 'a';\nCOMMENT ON OPERATOR FAMILY text USING btree IS 'a';\nCOMMENT ON CONSTRAINT c ON DOMAIN d IS 'a';\n",
     );
-    // psql の変数や解釈できない部分は、元のまま同じ行に書く
+    // psql variables and unparsable parts stay verbatim on the same line
     check(
         "comment on table :tbl is 'x';\ncomment on column :tbl.c is :'v';\ncomment on table t is U&'d\\0061t' uescape '!';\ncomment on column t.c is 'x' 'y';",
         "COMMENT ON TABLE :tbl IS 'x';\nCOMMENT ON COLUMN :tbl.c IS :'v';\nCOMMENT ON TABLE t IS U&'d\\0061t' uescape '!';\nCOMMENT ON COLUMN t.c IS 'x' 'y';\n",
@@ -1356,14 +1368,14 @@ fn truncate_statements() {
         "truncate t1, only s.t2 restart identity cascade;\ntruncate table t3 * continue identity restrict;\ntruncate identity;",
         "TRUNCATE t1, ONLY s.t2 RESTART IDENTITY CASCADE;\nTRUNCATE TABLE t3 * CONTINUE IDENTITY RESTRICT;\nTRUNCATE identity;\n",
     );
-    // 子の表を含める `*` の後ろにも表が続く
+    // More tables may follow the `*` that includes child tables
     check("truncate t1*,t2", "TRUNCATE t1 *, t2\n");
-    // PL/pgSQL の truncate という名前の変数への代入は TRUNCATE 文ではない
+    // A PL/pgSQL assignment to a variable named truncate is not a TRUNCATE statement
     check(
         "do $$ declare truncate int[]; drop record; begin truncate := '{5}'; truncate[1] := 1; drop.x = 2; truncate = '{}'; end $$",
         "DO $$\nDECLARE\n    truncate int[];\n    drop record;\nBEGIN\n    truncate := '{5}';\n    truncate[1] := 1;\n    drop.x = 2;\n    truncate = '{}';\nEND\n$$\n",
     );
-    // psql の変数は分けずに元のまま書く
+    // psql variables are kept verbatim, not split
     check(
         "truncate table :tbl, t cascade;",
         "TRUNCATE TABLE :tbl, t CASCADE;\n",
@@ -1394,7 +1406,7 @@ OWNED BY NONE
 
 #[test]
 fn create_type_statements() {
-    // 複合型の列は CREATE TABLE と同じく 1 行ずつ
+    // Composite type columns go one per line, like CREATE TABLE
     check(
         "create type pair as (a int, b text collate \"C\")",
         "CREATE TYPE pair AS (\n    a int\n  , b text COLLATE \"C\"\n)\n",
@@ -1441,7 +1453,7 @@ GRANT USAGE ON SCHEMA app TO :role
 
 #[test]
 fn alter_statements() {
-    // ALTER SEQUENCE のオプションは CREATE SEQUENCE と同じく 1 行ずつ
+    // ALTER SEQUENCE options go one per line, like CREATE SEQUENCE
     check(
         "alter sequence if exists s.seq increment by 5 restart with 100 no cycle;\nalter sequence s owned by t.id;\nalter sequence s owner to app",
         "\
@@ -1483,12 +1495,13 @@ ALTER EXTENSION pgcrypto UPDATE TO '1.3';
 ALTER ROLE joe WITH LOGIN PASSWORD 'x' VALID UNTIL 'infinity'
 ",
     );
-    // ON の後ろの表名はキーワードと同じ綴りでも名前。DEFAULT の後ろは式として整える
+    // The table name after ON is a name even when spelled like a keyword. What follows DEFAULT is
+    // formatted as an expression
     check(
         "alter trigger trg on data rename to x;\nalter domain d set default lower ( 'X' )||'y'",
         "ALTER TRIGGER trg ON data RENAME TO x;\nALTER DOMAIN d SET DEFAULT lower('X') || 'y'\n",
     );
-    // ALTER DEFAULT PRIVILEGES の後ろは GRANT / REVOKE。psql の変数は分けない
+    // ALTER DEFAULT PRIVILEGES is followed by GRANT / REVOKE. psql variables are not split
     check(
         "alter default privileges for role admin in schema app grant select on tables to reader;\nalter index :idx rename to :new_name",
         "\
@@ -1500,7 +1513,8 @@ ALTER INDEX :idx RENAME TO :new_name
 
 #[test]
 fn psql_variables_stay_in_one_piece() {
-    // 型や名前の位置の psql の変数は、前の語とくっつけない（くっつくと置き換えた値が名前とつながる）
+    // A psql variable in a type or name position is not joined to the preceding word (otherwise the
+    // substituted value would run into the name)
     check(
         "create type t as (h :typ, b :typ[]);\ncreate type :t2 as (a int);\ncreate type e as enum (:'a', :'b');\ncreate schema :s authorization :u;\ndrop table :tbl;\nselect * from :tbl where id = :id and n = :\"col\"",
         "\
@@ -1520,17 +1534,18 @@ WHERE id = :id
     AND n = :\"col\"
 ",
     );
-    // 続けて書いた変数・引用符を重ねた変数・ドットでつないだ変数も 1 つのまま
+    // Adjacent variables, variables with doubled quotes, and dot-joined variables also stay whole
     check(
         "select :'it''s', x from :a:b, :\"a\"\"b\";\nupdate :s.:t set a = 1",
         "SELECT\n    :'it''s'\n  , x\nFROM\n    :a:b\n  , :\"a\"\"b\";\nUPDATE :s.:t\nSET a = 1\n",
     );
-    // 空白を挟んだ配列の範囲指定は詰めない（詰めると psql が `:n` を変数として置き換える）
+    // An array slice with whitespace is not tightened (otherwise psql would substitute `:n` as a
+    // variable)
     check(
         "select a[2: n], a[2 : n], a[ : n] from t",
         "SELECT\n    a[2: n]\n  , a[2: n]\n  , a[: n]\nFROM t\n",
     );
-    // 配列の範囲指定と型変換は psql の変数ではない
+    // Array slices and casts are not psql variables
     check(
         "select a[1:n], a[:2], b[lo:hi], c::int from t",
         "SELECT\n    a[1:n]\n  , a[:2]\n  , b[lo:hi]\n  , c::int\nFROM t\n",
@@ -1543,7 +1558,7 @@ fn create_sequence_no_takes_one_word_and_schema_elements_stay_verbatim() {
         "create sequence s no maxvalue cycle",
         "CREATE SEQUENCE s\nNO MAXVALUE\nCYCLE\n",
     );
-    // 中に要素を書いた CREATE SCHEMA は、改行の位置を残すために元のまま
+    // A CREATE SCHEMA with schema elements inside is kept verbatim to preserve its line breaks
     check(
         "create schema s\n  create table t (a int)\n  create view v as select 1;\nselect 1",
         "create schema s\n  create table t (a int)\n  create view v as select 1;\nSELECT 1\n",
@@ -1594,7 +1609,7 @@ SHOW work_mem
 
 #[test]
 fn explain_statements() {
-    // 対象の文は次の行から整形する
+    // The target statement is formatted starting on the next line
     check(
         "explain analyze verbose select a from t where b = 1;\nexplain (analyze, buffers false, format json) update t set a = 1",
         "\
@@ -1657,7 +1672,7 @@ ALTER EXTENSION e ADD CAST (int AS text)
 
 #[test]
 fn utility_statement_edge_cases() {
-    // 括弧付きのオプションの値は、折り返しても 1 つのまま
+    // A parenthesized option value stays whole even when the list wraps
     check(
         "COPY t TO STDOUT WITH (FORMAT csv, HEADER true, FORCE_QUOTE (a, b), FORCE_NOT_NULL (c, d));",
         "\
@@ -1669,7 +1684,7 @@ COPY t TO STDOUT WITH (
 );
 ",
     );
-    // EXPLAIN の直後の括弧の問い合わせはオプションではない
+    // A parenthesized query right after EXPLAIN is not an option list
     check(
         "explain (select 1) order by 1",
         "EXPLAIN\n(\n    SELECT 1\n)\nORDER BY 1\n",
@@ -1716,7 +1731,7 @@ ALTER TABLE t OWNER TO CURRENT_USER
 
 #[test]
 fn items_with_aliases_wrap_by_their_full_width() {
-    // 別名まで含めた長さで、行幅に収まるかを判定する
+    // Whether the item fits the line width is judged by its length including the alias
     check(
         "select format_name(customer_first_name, customer_last_name, customer_title) as display_name from customers",
         "\
@@ -1728,7 +1743,8 @@ SELECT format_name(
 FROM customers
 ",
     );
-    // 別名の幅に行頭の字下げは入れない（78 桁で収まる）。後ろのコメントは数えない（入力によって付く先が変わる）
+    // The leading indent is not added to the alias width (78 columns fits). A trailing comment is
+    // not counted (where it attaches depends on the input)
     check(
         "select rank() over (partition by m.month order by m.total desc nulls last) as rnk, 1 from m",
         "\
@@ -1747,12 +1763,13 @@ SELECT
 FROM m
 ",
     );
-    // 別名そのものを書くときは、別名の幅を差し引かない（77 桁で収まる）
+    // When writing the alias itself, its width is not subtracted (77 columns fits)
     check(
         "select * from generate_series(1, 2) as g(first_column_name, second_column_name, third)",
         "SELECT *\nFROM generate_series(1, 2) AS g(first_column_name, second_column_name, third)\n",
     );
-    // 括弧を折り返したあとの行では、別名の幅を差し引かない（別名は閉じ括弧の行に来る）
+    // On lines after a parenthesis has been wrapped, the alias width is not subtracted (the alias
+    // lands on the closing parenthesis line)
     check(
         "select format_name(customer_first_name, coalesce(customer_middle_name, customer_nickname, ''), customer_last_name) as display_name_with_a_long_alias from customers",
         "\

@@ -26,7 +26,7 @@ DECLARE
     k CONSTANT int := 10;
     v_ids bigint[] DEFAULT '{}';
 BEGIN
-    -- 残高の確認
+    -- check the balance
     SELECT balance
     INTO STRICT v_balance
     FROM accounts

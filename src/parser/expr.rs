@@ -1,14 +1,14 @@
-//! 式と型名。
+//! Expressions and type names.
 //!
-//! 二項演算は Pratt パーサーで読む。優先順位は PostgreSQL のドキュメント
-//! 「4.1.6. Operator Precedence」に合わせている。
+//! Binary operations are parsed with a Pratt parser. Precedence follows the PostgreSQL
+//! documentation, "4.1.6. Operator Precedence".
 
 use super::Parser;
 use super::keywords::{is_reserved, is_value_keyword};
 use crate::lexer::{StringPrefix, TokenKind};
 use crate::syntax::NodeKind;
 
-// 結合力。大きいほど強く結びつく。
+// Binding power. Higher binds tighter.
 const BP_OR: u8 = 1;
 const BP_AND: u8 = 2;
 const BP_NOT: u8 = 3;
@@ -16,24 +16,27 @@ const BP_IS: u8 = 4;
 const BP_COMPARISON: u8 = 5;
 /// `BETWEEN` `IN` `LIKE` `ILIKE` `SIMILAR`
 const BP_PATTERN: u8 = 6;
-/// `||` `@>` などその他の演算子
+/// Other operators, such as `||` and `@>`
 const BP_OTHER_OP: u8 = 7;
 const BP_ADD: u8 = 8;
 const BP_MUL: u8 = 9;
 const BP_EXP: u8 = 10;
 const BP_AT: u8 = 11;
 const BP_COLLATE: u8 = 12;
-/// 単項の `+` / `-`。gram.y の UMINUS は COLLATE・AT より強い（`-x COLLATE "C"` は `(-x) COLLATE "C"`）
+/// Unary `+` / `-`. UMINUS in gram.y binds tighter than COLLATE and AT (`-x COLLATE "C"` is
+/// `(-x) COLLATE "C"`)
 const BP_UNARY: u8 = 13;
 const BP_SUBSCRIPT: u8 = 14;
 const BP_CAST: u8 = 15;
 const BP_FIELD: u8 = 16;
 
-/// 比較・論理演算・IN などを含まない式（`BETWEEN` の上下限や `POSITION(a IN b)` の引数）
+/// An expression without comparisons, logical operators, IN, etc. (the bounds of `BETWEEN`, or
+/// the arguments of `POSITION(a IN b)`)
 const BP_B_EXPR: u8 = BP_OTHER_OP;
 
-/// 関数の引数に現れる、式の一部ではないキーワード
-/// （`count(DISTINCT x)`、`extract(year FROM d)`、`substring(s FROM 1 FOR 2)`、`trim(BOTH 'x' FROM s)` など）
+/// Keywords that appear in function arguments but are not part of an expression
+/// (`count(DISTINCT x)`, `extract(year FROM d)`, `substring(s FROM 1 FOR 2)`,
+/// `trim(BOTH 'x' FROM s)`, etc.)
 const ARG_KEYWORDS: &[&str] = &[
     "all", "distinct", "variadic", "from", "for", "in", "as", "both", "leading", "trailing",
     "placing",
@@ -71,17 +74,18 @@ impl Infix {
 }
 
 impl Parser<'_> {
-    /// 式を 1 つ読む。式が始まらなければ何も取り込まずに false を返す。
+    /// Reads one expression. Returns false, consuming nothing, if no expression starts here.
     pub(super) fn expr(&mut self) -> bool {
         self.expr_bp(0)
     }
 
-    /// 比較・論理演算・IN などを含まない式（`FOREACH x SLICE 1 IN ARRAY ...` の `1` など）
+    /// An expression without comparisons, logical operators, IN, etc. (e.g. the `1` in
+    /// `FOREACH x SLICE 1 IN ARRAY ...`)
     pub(super) fn expr_without_in(&mut self) -> bool {
         self.expr_bp(BP_B_EXPR)
     }
 
-    /// UPDATE の `SET` の左辺（`col` / `col[1]` / `col.field`）。`=` の手前で止まる。
+    /// The left-hand side of `SET` in UPDATE (`col` / `col[1]` / `col.field`). Stops before `=`.
     pub(super) fn set_target(&mut self) -> bool {
         self.expr_bp(BP_COMPARISON + 1)
     }
@@ -102,7 +106,7 @@ impl Parser<'_> {
         true
     }
 
-    /// 次のトークンが中置・後置の演算子なら、その種類と結合力
+    /// If the next token is an infix or postfix operator, its kind and binding power
     fn infix(&self) -> Option<(Infix, u8)> {
         let token = self.current()?;
         let found = match token.kind {
@@ -120,7 +124,7 @@ impl Parser<'_> {
             TokenKind::LBracket => (Infix::Subscript, BP_SUBSCRIPT),
             TokenKind::Dot => (Infix::Field, BP_FIELD),
             TokenKind::Ident => {
-                // `NOT BETWEEN` などは NOT の次で判定する
+                // For `NOT BETWEEN` and the like, decide on the token after NOT
                 let n = usize::from(self.at_kw("not"));
                 if n == 0 && self.at_kw("or") {
                     (Infix::Binary, BP_OR)
@@ -153,7 +157,7 @@ impl Parser<'_> {
         Some(found)
     }
 
-    /// 演算子と右辺を読む（左辺は読み終えている）
+    /// Reads the operator and the right-hand side (the left-hand side has already been read)
     fn infix_rest(&mut self, infix: Infix, bp: u8) {
         match infix {
             Infix::Binary => {
@@ -182,7 +186,7 @@ impl Parser<'_> {
                         self.expr_list();
                     }
                 } else if self.at(TokenKind::PsqlVariable) {
-                    // `IN :list`（psql が `(1, 2)` などに置き換える）
+                    // `IN :list` (psql substitutes something like `(1, 2)` for it)
                     self.bump();
                 }
             }
@@ -233,7 +237,7 @@ impl Parser<'_> {
         }
     }
 
-    /// `IS [NOT] NULL` / `IS [NOT] DISTINCT FROM expr` / `ISNULL` / `NOTNULL` など
+    /// `IS [NOT] NULL` / `IS [NOT] DISTINCT FROM expr` / `ISNULL` / `NOTNULL`, etc.
     fn is_rest(&mut self) {
         if self.eat_kw("isnull") || self.eat_kw("notnull") {
             return;
@@ -313,8 +317,9 @@ impl Parser<'_> {
         }
     }
 
-    /// 直前の文字列に続く `'...'` か。PostgreSQL では、改行を含む空白だけを挟んだ文字列はつながって
-    /// 1 つの文字列になる（`'a'` 改行 `'b'` は `'ab'`）。同じ行に並べると構文エラーになる。
+    /// Whether a `'...'` continues the preceding string. In PostgreSQL, strings separated only by
+    /// whitespace that contains a newline are concatenated into one string (`'a'` newline `'b'`
+    /// is `'ab'`). Putting them on the same line is a syntax error.
     fn at_string_continuation(&self) -> bool {
         match &self.tokens[self.pos..] {
             [space, next, ..] => {
@@ -392,7 +397,7 @@ impl Parser<'_> {
         }
     }
 
-    /// キーワードの値や関数（`CURRENT_TIMESTAMP` / `CURRENT_TIMESTAMP(3)` / `ANY(...)`）
+    /// A keyword value or function (`CURRENT_TIMESTAMP` / `CURRENT_TIMESTAMP(3)` / `ANY(...)`)
     fn keyword_call(&mut self) {
         let cp = self.checkpoint();
         self.bump_kw();
@@ -404,7 +409,7 @@ impl Parser<'_> {
         }
     }
 
-    /// 列参照・関数呼び出し・`type 'literal'` のいずれか
+    /// A column reference, a function call, or a `type 'literal'`
     fn name_or_call(&mut self) {
         let cp = self.checkpoint();
         let first = self.current().unwrap();
@@ -422,7 +427,8 @@ impl Parser<'_> {
             && first.kind == TokenKind::Ident
             && let Some(words) = self.typed_literal_words()
         {
-            // 型名の残りの語（`with time zone` など）は型名と同じく入力のまま
+            // The remaining words of the type name (e.g. `with time zone`) are kept verbatim, like
+            // the type name itself
             for _ in 0..words {
                 self.bump();
             }
@@ -433,8 +439,9 @@ impl Parser<'_> {
         }
     }
 
-    /// 型名の最初の語を読んだあとで、`type 'literal'` の文字列が続くなら、その前にある型名の残りの語の数
-    /// （`interval '1 day'` は 0、`timestamp with time zone '...'` は 3、`double precision '1'` は 1）
+    /// After the first word of a type name has been read: if the string of a `type 'literal'`
+    /// follows, the number of remaining type-name words before it (`interval '1 day'` is 0,
+    /// `timestamp with time zone '...'` is 3, `double precision '1'` is 1)
     fn typed_literal_words(&self) -> Option<usize> {
         const REST_OF_TYPE: &[&[&str]] = &[
             &[],
@@ -456,7 +463,8 @@ impl Parser<'_> {
         })
     }
 
-    /// `a.b.c` / `t.*` の形の名前を読み、部分の数を返す。名前で始まらなければ 0。
+    /// Reads a name of the form `a.b.c` / `t.*` and returns the number of parts, or 0 if it does
+    /// not start with a name.
     pub(super) fn name_path(&mut self) -> usize {
         if !self.at_name() {
             return 0;
@@ -478,7 +486,7 @@ impl Parser<'_> {
         parts
     }
 
-    /// n 番目が名前（識別子・引用符付き識別子・psql の変数）か
+    /// Whether the n-th token is a name (an identifier, a quoted identifier, or a psql variable)
     pub(super) fn nth_is_any_name(&self, n: usize) -> bool {
         self.nth(n).is_some_and(|t| {
             matches!(
@@ -497,7 +505,8 @@ impl Parser<'_> {
         })
     }
 
-    /// 関数呼び出しの `(...)`。`arg_bp` は引数の式の最小の結合力。
+    /// The `(...)` of a function call. `arg_bp` is the minimum binding power for the argument
+    /// expressions.
     pub(super) fn arg_list(&mut self, arg_bp: u8) {
         self.start_node(NodeKind::ArgList);
         self.bump();
@@ -590,7 +599,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `(` から始まる式: 副問い合わせ、括弧で囲んだ式、行
+    /// An expression starting with `(`: a subquery, a parenthesized expression, or a row
     fn paren_primary(&mut self) {
         if self.at_query_start(1) {
             self.subquery_expr();
@@ -617,8 +626,8 @@ impl Parser<'_> {
         }
     }
 
-    /// `(SELECT ...)`。CTE の本体の `(INSERT ... RETURNING ...)` なども読む。
-    /// それ以外の文はそのまま保持する。
+    /// `(SELECT ...)`. Also reads `(INSERT ... RETURNING ...)` and the like as the body of a CTE.
+    /// Any other statement is kept as is.
     pub(super) fn subquery_expr(&mut self) {
         self.start_node(NodeKind::SubqueryExpr);
         self.bump();
@@ -642,7 +651,7 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// `[...]`。入れ子の `[...]` は `ARRAY` を省いた配列になる。
+    /// `[...]`. A nested `[...]` is an array with the `ARRAY` omitted.
     fn array_brackets(&mut self) {
         self.bump();
         loop {
@@ -704,8 +713,9 @@ impl Parser<'_> {
         self.finish_node();
     }
 
-    /// 型名。`double precision` / `character varying(10)` / `timestamp(3) with time zone` /
-    /// `interval day to second` / `int[]` などの複数語・修飾子・配列を含む。
+    /// A type name, including multi-word names, modifiers, and arrays: `double precision` /
+    /// `character varying(10)` / `timestamp(3) with time zone` / `interval day to second` /
+    /// `int[]`, etc.
     pub(super) fn type_name(&mut self) {
         let Some(first) = self.current().filter(|_| self.at_name()) else {
             return;
@@ -754,7 +764,7 @@ impl Parser<'_> {
             self.eat(TokenKind::Number);
             self.expect_closing(TokenKind::RBracket);
         }
-        // PL/pgSQL の `tbl.col%TYPE` / `tbl%ROWTYPE`
+        // PL/pgSQL `tbl.col%TYPE` / `tbl%ROWTYPE`
         if self.at_op("%") && (self.nth_kw(1, "type") || self.nth_kw(1, "rowtype")) {
             self.bump();
             self.bump();

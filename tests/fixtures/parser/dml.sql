@@ -1,4 +1,4 @@
--- 在庫の取り込み（UPSERT）
+-- stock import (UPSERT)
 WITH incoming AS (
   SELECT sku, qty FROM staging_stock WHERE batch_id = $1
 )
@@ -13,7 +13,7 @@ RETURNING s.sku, s.qty;
 UPDATE orders o
 SET status = 'shipped', (shipped_at, carrier) = (now(), c.name)
 FROM carriers c
-WHERE c.id = o.carrier_id AND o.status = 'packed' -- 梱包済みのみ
+WHERE c.id = o.carrier_id AND o.status = 'packed' -- packed only
 RETURNING o.id;
 
 DELETE FROM sessions s
