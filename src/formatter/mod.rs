@@ -24,6 +24,7 @@ use crate::parser::parse;
 use crate::syntax::{Element, Node, NodeKind};
 use writer::{Writer, is_opaque};
 
+/// Options for [`format_with_options`]. The default matches the command-line tool's defaults
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatOptions {
     /// Line width. An expression that exceeds it is wrapped (a full-width character counts as
@@ -32,7 +33,9 @@ pub struct FormatOptions {
     /// Width of one indentation level. Use 2 or more, since a leading comma is placed 2 columns
     /// to the left of its item
     pub indent_width: usize,
+    /// Case of keywords
     pub keyword_case: KeywordCase,
+    /// Position of the comma when items are listed one per line
     pub comma_style: CommaStyle,
 }
 
@@ -50,7 +53,9 @@ impl Default for FormatOptions {
 /// Case of keywords
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeywordCase {
+    /// `SELECT`
     Upper,
+    /// `select`
     Lower,
     /// As in the input
     Preserve,
@@ -65,10 +70,12 @@ pub enum CommaStyle {
     Trailing,
 }
 
+/// Formats `src` with the default options
 pub fn format(src: &str) -> String {
     format_with_options(src, &FormatOptions::default())
 }
 
+/// Formats `src` with `options`. Statements that cannot be parsed are output verbatim
 pub fn format_with_options(src: &str, options: &FormatOptions) -> String {
     let root = parse(src);
     let mut f = Formatter {

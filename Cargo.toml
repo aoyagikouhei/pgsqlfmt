@@ -1,10 +1,16 @@
 [package]
 name = "pgsqlfmt"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
+rust-version = "1.85"
 description = "A formatter for PostgreSQL SQL / PL/pgSQL"
 license = "MIT"
 repository = "https://github.com/aoyagikouhei/pgsqlfmt"
+readme = "README.md"
+keywords = ["postgresql", "sql", "formatter", "plpgsql", "cli"]
+categories = ["command-line-utilities", "development-tools", "database"]
+# Publish only what is needed to build and read about the crate (no Docker / CI / test files)
+include = ["/src/**/*.rs", "/README.md", "/LICENSE", "/CHANGELOG.md"]
 
 [dependencies]
 
@@ -18,3 +24,9 @@ opt-level = 1
 # Strip the symbol table from the distributed binary to make it smaller
 [profile.release]
 strip = true
+
+# Let `cargo binstall pgsqlfmt` download the prebuilt binary from GitHub Releases
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"

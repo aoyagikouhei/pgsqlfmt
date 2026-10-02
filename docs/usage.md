@@ -35,13 +35,20 @@ sha256sum -c pgsqlfmt-x86_64-unknown-linux-musl.tar.gz.sha256
 
 ### Installing with cargo
 
-If you have Rust (cargo), you can build and install directly from GitHub.
+If you have Rust (cargo), you can build and install it from [crates.io](https://crates.io/crates/pgsqlfmt).
+
+```sh
+cargo install pgsqlfmt
+```
+
+The binary is installed to `~/.cargo/bin/pgsqlfmt`.
+With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), `cargo binstall pgsqlfmt` downloads the prebuilt binary from GitHub Releases instead of building it (on Linux amd64 and arm64).
+
+To install the latest development version from GitHub, use `--git`.
 
 ```sh
 cargo install --git https://github.com/aoyagikouhei/pgsqlfmt
 ```
-
-The binary is installed to `~/.cargo/bin/pgsqlfmt`.
 
 ### Using Docker
 
@@ -120,7 +127,7 @@ pgsqlfmt can be used as a [pre-commit](https://pre-commit.com/) hook. The hook r
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/aoyagikouhei/pgsqlfmt
-    rev: v0.2.1  # a release tag
+    rev: v0.2.2  # a release tag
     hooks:
       - id: pgsqlfmt          # format and rewrite
       # - id: pgsqlfmt-check  # check only (for CI)

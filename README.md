@@ -36,10 +36,10 @@ curl -sSL "https://github.com/aoyagikouhei/pgsqlfmt/releases/latest/download/pgs
 sudo mv pgsqlfmt /usr/local/bin/
 ```
 
-If you have Rust (cargo), you can also install directly from GitHub.
+If you have Rust (cargo), you can also install it from crates.io.
 
 ```sh
-cargo install --git https://github.com/aoyagikouhei/pgsqlfmt
+cargo install pgsqlfmt
 ```
 
 You can also use it through Docker without installing Rust.
@@ -62,7 +62,7 @@ For pre-commit, add the following to `.pre-commit-config.yaml`.
 ```yaml
 repos:
   - repo: https://github.com/aoyagikouhei/pgsqlfmt
-    rev: v0.2.1
+    rev: v0.2.2
     hooks:
       - id: pgsqlfmt
 ```

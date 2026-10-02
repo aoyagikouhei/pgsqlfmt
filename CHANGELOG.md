@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-02
+
+### Added
+
+- Published on crates.io. Install with `cargo install pgsqlfmt`, or with `cargo binstall pgsqlfmt` to download the prebuilt binary from GitHub Releases
+- Library documentation on docs.rs. The public API is `format`, `format_with_options`, `FormatOptions`, `KeywordCase`, and `CommaStyle`. The `formatter` / `lexer` / `parser` / `syntax` modules are hidden from the documentation and are not covered by semantic versioning
+
 ## [0.2.1] - 2026-10-02
 
 ### Changed
@@ -51,7 +58,8 @@ Initial release.
 - Distribution: Linux binaries (x86_64 / aarch64, statically linked with musl) on GitHub Releases, a Docker image, and pre-commit hooks
 - MIT license
 
-[Unreleased]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/aoyagikouhei/pgsqlfmt/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aoyagikouhei/pgsqlfmt/releases/tag/v0.1.0

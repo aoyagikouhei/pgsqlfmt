@@ -153,7 +153,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs two jobs on every push to main 
 
 ## Releases
 
-Pushing a tag such as `v0.1.0` makes `.github/workflows/release.yml` build the binaries on GitHub runners and upload them to GitHub Releases.
+Pushing a tag such as `v0.1.0` makes `.github/workflows/release.yml` build the binaries on GitHub runners and upload them to GitHub Releases, and then publish the crate to [crates.io](https://crates.io/crates/pgsqlfmt).
 
 | Target | Runner |
 | --- | --- |
@@ -175,7 +175,18 @@ The release procedure is as follows.
    git push origin v0.1.0
    ```
 
-4. Confirm that the Release workflow passes and the assets appear on GitHub Releases.
+4. Confirm that the Release workflow passes, the assets appear on GitHub Releases, and the new version appears on crates.io.
+
+The `publish` job authenticates to crates.io with [Trusted Publishing](https://crates.io/docs/trusted-publishing) (GitHub OIDC), so no API token is stored in the repository.
+It requires this repository and `release.yml` to be registered as a Trusted Publisher in the crate's settings on crates.io.
+If the version is already on crates.io, the job skips publishing.
+
+Before publishing, check the contents of the package. Only `src/`, `README.md`, `LICENSE`, and `CHANGELOG.md` are included (`include` in Cargo.toml).
+
+```sh
+cargo package --list
+cargo publish --dry-run
+```
 
 To try only the build on the runners without creating a tag, run the workflow manually. It stops after the build and smoke test and does not create a release.
 
@@ -187,7 +198,7 @@ gh workflow run Release --ref main
 
 | File | Contents |
 | --- | --- |
-| `.github/workflows/release.yml` | Uploads Linux binaries to GitHub Releases when a tag is pushed |
+| `.github/workflows/release.yml` | Uploads Linux binaries to GitHub Releases and publishes the crate to crates.io when a tag is pushed |
 | `Dockerfile` | The distribution image. Contains only the release-built binary |
 | `.pre-commit-hooks.yaml` | The pre-commit hooks (`pgsqlfmt` and `pgsqlfmt-check`). They run on the image above |
 
